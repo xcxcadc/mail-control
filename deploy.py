@@ -89,6 +89,9 @@ def main():
         parser.error("--socks-port must be between 1 and 65535")
     if args.timeout < 30:
         parser.error("--timeout must be at least 30 seconds")
+    for source in ("install.sh", "mail_control.py", "nginx/mail-control-admin.conf"):
+        if not (ROOT / source).is_file():
+            parser.error(f"missing {source}; build the UI and use a complete checkout")
     password = get_password(parser)
 
     client = None
@@ -105,6 +108,13 @@ def main():
         sftp.mkdir(remote_dir, mode=0o700)
         put_file(sftp, ROOT / "install.sh", f"{remote_dir}/install.sh", 0o700)
         put_file(sftp, ROOT / "mail_control.py", f"{remote_dir}/mail_control.py", 0o750)
+        sftp.mkdir(f"{remote_dir}/nginx", mode=0o700)
+        put_file(
+            sftp,
+            ROOT / "nginx/mail-control-admin.conf",
+            f"{remote_dir}/nginx/mail-control-admin.conf",
+            0o640,
+        )
 
         env_prefix = remote_env(args)
         env_prefix = f"{env_prefix} " if env_prefix else ""

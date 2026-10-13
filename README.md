@@ -5,12 +5,15 @@
 主要功能：
 
 - 跨 Maildir 文件夹查询历史邮件
+- 全站邮件查询，按完整邮箱、精确前缀和域名筛选，并通过 Dovecot 删除选中的邮件
 - 查看 HTML 和纯文本邮件
+- 用任意有效邮箱前缀和本站已有域名组合发件，支持预览和发送前验证
 - 管理发件人黑名单和白名单
 - 支持内嵌图片、图片链接、抄送、密送和附件的富文本发信
 - 按域名批量创建和删除邮箱
 - 邮件营销、联系人分组、模板、定时发送、限速和打开/点击统计
 - 管理发件 API 密钥，支持单封和批量发信
+- 统一“秩序蓝白”界面，桌面邮件阅读区、手机居中弹窗及原生 Mailu/Rspamd/Webmail 页面协调显示
 
 ## 部署
 
@@ -38,11 +41,14 @@ curl -fsSL https://raw.githubusercontent.com/xcxcadc/mail-control/master/install
 curl -fsSL https://raw.githubusercontent.com/xcxcadc/mail-control/master/install.sh | sudo bash -s -- --mailu-dir /srv/mailu
 ~~~
 
-使用本地源码离线安装：
+使用本地源码安装。修改源码后先生成程序；本地模式直接读取这两个部署文件，不从 GitHub 下载程序或配置：
 
 ~~~bash
+python3 tools/build_ui.py
 sudo bash install.sh --source-dir .
 ~~~
+
+完整源码必须包含生成后的 `mail_control.py` 和 `nginx/mail-control-admin.conf`。在线安装从同一 `--ref` 下载两者，缺失、下载失败或 Python 语法检查失败时会在修改系统配置前停止。已有 Python/bcrypt 运行环境的本地安装不需要网络；若缺少运行依赖，安装脚本仍需安装依赖。
 
 ### 通过本地电脑部署
 
@@ -57,7 +63,7 @@ $env:MAIL_CONTROL_SOCKS_PORT = "10808"
 python deploy.py
 ~~~
 
-`deploy.py` 会将源码上传到远程临时目录，并调用同一套 `install.sh`。Windows 下也可以使用 `deploy.ps1`，它会自动准备 `paramiko`、`PySocks` 和 `bcrypt`：
+`deploy.py` 会将生成后的程序、安装脚本和 `nginx/mail-control-admin.conf` 一起上传到远程临时目录，并调用同一套 `install.sh`。Windows 下也可以使用 `deploy.ps1`，它会自动准备 `paramiko`、`PySocks` 和 `bcrypt`：
 
 ~~~powershell
 .\deploy.ps1 --host server.example.com --socks-port 10808
@@ -67,7 +73,9 @@ python deploy.py
 
 ## 功能入口
 
-Rspamd 页面内置“中控菜单”，包含邮件控制、批量邮箱、邮件营销和发件 API。点击后会在当前页面的弹窗中打开，并复用当前 Mailu 登录状态，不需要二次登录。
+全局管理员可以在 Mailu 侧边栏的“邮件工作台”中打开全局邮件查询、邮件控制、自定义发件、批量邮箱、邮件营销和发件 API。Rspamd 使用独立页面及同一组导航；不会用另一层管理页面弹窗包住这些功能。所有入口复用 Mailu 登录状态，接口继续校验权限。
+
+蓝白样式在页面首帧应用，导航使用统一宽度和选中状态。桌面全局查询按左侧列表、右侧阅读区显示；手机邮件详情和其他弹窗适配视口并居中。邮件 HTML 在受限制的框架中载入，纯文本、内嵌图片和附件使用原有业务接口。
 
 原 `/mail-control/` 地址会跳转到 `/admin/mail-control/`。直接访问扩展接口或进行故障排查时，仍支持 Basic Auth。
 
@@ -103,10 +111,13 @@ Mailu 原生登录和会话路由保持不变，桌面端和手机端继续使�
 ## 安装后的地址
 
 - 邮件控制：`/admin/mail-control/`
+- 全局邮件查询：`/admin/mail-control/global/`
+- 自定义发件：`/admin/mail-control/custom-send/`
 - 批量邮箱：`/admin/mail-control/accounts/`
 - 邮件营销、模板、联系人和 API：`/admin/mail-control/marketing/`
+- 发件 API 管理：`/admin/mail-control/marketing/?tab=api`
 - 发件 API：`/mail-control/api/v1/send` 和 `/mail-control/api/v1/batch-send`
-- Rspamd 中控菜单：邮件控制、批量邮箱、邮件营销和发件 API
+- Rspamd：`/admin/antispam/`，无末尾斜线的地址会重定向
 
 如果自动识别不适用于自定义部署，请使用 `--mailu-dir`、`--front-container`、`--bind`、`--mail-root`、`--db`、`--rspamd-dir`、`--dovecot-dir` 和 `--override-dir`，或设置对应的 `MAIL_CONTROL_*` 环境变量。
 
@@ -115,6 +126,8 @@ Mailu 原生登录和会话路由保持不变，桌面端和手机端继续使�
 ~~~powershell
 python -m unittest -v test_mail_control.py
 ~~~
+
+界面和构建维护见 [docs/ui-maintenance.md](docs/ui-maintenance.md)。请修改 `src/mail_control.py` 和 `ui/` 后运行 `python tools/build_ui.py`，再验证生成结果；不要只修改根目录部署程序中的嵌入样式。
 
 ## 安全说明
 

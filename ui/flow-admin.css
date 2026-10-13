@@ -1,0 +1,144 @@
+/* Scoped to the native Mailu AdminLTE shell; no webmail/Rspamd/tool content selectors. */
+body.mailu-flow-admin {
+  --flow-text:#2d3544; --flow-muted:#68788e; --flow-line:#e6eaf0;
+  --flow-blue:#3c68cb; --flow-blue-soft:#edf2fc; --flow-sidebar:#f9fafc;
+  --flow-danger:#bd5148; --flow-soft:#f7f8fb;
+  font:14px/1.6 Inter,"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;
+  color:var(--flow-text); background:#fff; min-width:320px; letter-spacing:0; -webkit-font-smoothing:antialiased;
+}
+.mailu-flow-admin *, .mailu-flow-admin *:before, .mailu-flow-admin *:after { box-sizing:border-box; }
+.mailu-flow-admin .wrapper { background:#fff; min-width:0; overflow:visible; }
+.mailu-flow-admin a { color:var(--flow-blue); }
+.mailu-flow-admin a:hover { color:#315bb7; }
+.mailu-flow-admin .main-sidebar { position:fixed!important; top:0; left:0; bottom:0; width:194px!important; height:100dvh; margin:0!important; transform:none; background:var(--flow-sidebar)!important; overflow:hidden; z-index:1038; transition:transform .16s ease; }
+.mailu-flow-admin .main-header, .mailu-flow-admin .content-wrapper, .mailu-flow-admin .main-footer { margin-left:194px!important; transition:none!important; }
+.mailu-flow-admin .main-header {
+  height:58px; min-height:58px; background:#fff!important; border:0; border-bottom:1px solid var(--flow-line);
+  padding:0 25px; color:var(--flow-muted); box-shadow:none!important; flex-wrap:nowrap;
+}
+.mailu-flow-admin .main-header .navbar-nav { align-items:center; min-width:0; }
+.mailu-flow-admin .main-header .nav-link { padding:8px 10px; height:auto; color:var(--flow-muted)!important; font-size:13px; overflow-wrap:anywhere; }
+.mailu-flow-admin .main-header .nav-link:hover { color:var(--flow-blue)!important; }
+.mailu-flow-admin .main-header [data-widget="pushmenu"] { display:none!important; }
+.mailu-flow-admin .main-header .navbar-brand { font-size:14px; color:var(--flow-text); }
+.mailu-flow-admin .content-wrapper { background:#fff!important; min-width:0; min-height:calc(100dvh - 114px)!important; padding:0 30px 25px; }
+.mailu-flow-admin .content-header { padding:26px 0 20px; }
+.mailu-flow-admin .content-header h1 { font-size:23px!important; line-height:1.5; font-weight:600; margin:0; overflow-wrap:anywhere; }
+.mailu-flow-admin .content-header h1 small { display:block; margin-top:5px; font-size:13px; font-weight:400; color:var(--flow-muted); }
+.mailu-flow-admin .content-header .breadcrumb { padding:0; margin:0; font-size:12px; color:var(--flow-muted); background:none; flex-wrap:wrap; }
+.mailu-flow-admin .content-header .row { align-items:center; gap:10px 0; }
+.mailu-flow-admin .content, .mailu-flow-admin .content>.container-fluid { padding:0; min-width:0; }
+.mailu-flow-admin .content>.container-fluid { max-width:1600px; }
+.mailu-flow-admin .container, .mailu-flow-admin .container-fluid, .mailu-flow-admin .row>[class*="col"] { min-width:0; }
+.mailu-flow-admin .main-footer { padding:17px 30px; border-top:1px solid var(--flow-line); background:#fff; font-size:12px; color:var(--flow-muted); }
+.mailu-flow-admin h2, .mailu-flow-admin h3, .mailu-flow-admin .card-title { font-size:17px; font-weight:600; line-height:1.6; }
+.mailu-flow-admin h4, .mailu-flow-admin h5, .mailu-flow-admin h6 { font-size:14px; font-weight:600; }
+.mailu-flow-admin p { overflow-wrap:anywhere; }
+.mailu-flow-admin .card, .mailu-flow-admin .box { border:1px solid var(--flow-line); border-radius:5px; box-shadow:none!important; background:#fff; margin-bottom:22px; }
+.mailu-flow-admin .card[class*="card-outline"], .mailu-flow-admin .box { border-top:1px solid var(--flow-line); }
+.mailu-flow-admin .card-header, .mailu-flow-admin .box-header { padding:16px 20px; background:#fff; border-bottom:1px solid var(--flow-line); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.mailu-flow-admin .card-header:after, .mailu-flow-admin .box-header:after { display:none; }
+.mailu-flow-admin .card-header .card-title, .mailu-flow-admin .box-header .box-title { float:none; margin:0; }
+.mailu-flow-admin .card-tools { position:static; margin:0 0 0 auto; display:flex; gap:7px; align-items:center; flex-wrap:wrap; }
+.mailu-flow-admin .card-body, .mailu-flow-admin .box-body { padding:20px; min-width:0; }
+.mailu-flow-admin .card-footer, .mailu-flow-admin .box-footer { padding:14px 20px; background:var(--flow-soft); border-top:1px solid var(--flow-line); }
+.mailu-flow-admin label { color:var(--flow-text); font-size:14px; font-weight:500!important; margin-bottom:7px; }
+.mailu-flow-admin .form-group { margin-bottom:20px; min-width:0; }
+.mailu-flow-admin .form-control, .mailu-flow-admin .custom-select, .mailu-flow-admin .select2-container--default .select2-selection--single,
+.mailu-flow-admin .select2-container--default .select2-selection--multiple {
+  min-height:39px; height:auto; max-width:100%; border:1px solid #dfe5ee; border-radius:5px;
+  background:#fff; color:var(--flow-text); font-family:inherit; font-size:14px; line-height:1.5; padding:8px 11px; box-shadow:none;
+}
+.mailu-flow-admin input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):not([type="button"]), .mailu-flow-admin select, .mailu-flow-admin textarea { max-width:100%; }
+.mailu-flow-admin textarea.form-control { height:auto; min-height:110px; resize:vertical; }
+.mailu-flow-admin .form-control:focus, .mailu-flow-admin .custom-select:focus { border-color:#8da8e9; box-shadow:0 0 0 2px #3c68cb16; }
+.mailu-flow-admin .form-control::placeholder { color:#8a96a8; opacity:1; }
+.mailu-flow-admin .form-control:disabled, .mailu-flow-admin .form-control[readonly] { color:#607087; background:var(--flow-soft); }
+.mailu-flow-admin .input-group { min-width:0; flex-wrap:nowrap; }
+.mailu-flow-admin .input-group>.form-control { min-width:0; width:1%; }
+.mailu-flow-admin .input-group-text { border-color:#dfe5ee; background:var(--flow-soft); font-size:13px; overflow-wrap:anywhere; }
+.mailu-flow-admin input[type="checkbox"], .mailu-flow-admin input[type="radio"] { accent-color:var(--flow-blue); }
+.mailu-flow-admin .help-block, .mailu-flow-admin .form-text, .mailu-flow-admin .text-muted { color:var(--flow-muted)!important; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.mailu-flow-admin .invalid-feedback, .mailu-flow-admin .has-error .help-block, .mailu-flow-admin .text-danger { color:var(--flow-danger)!important; font-size:13px; line-height:1.6; }
+.mailu-flow-admin .has-error .form-control, .mailu-flow-admin .form-control.is-invalid { border-color:var(--flow-danger)!important; }
+.mailu-flow-admin .btn { min-height:37px; max-width:100%; border-radius:4px; padding:7px 12px; font-size:14px; line-height:1.5; box-shadow:none!important; white-space:normal; }
+.mailu-flow-admin .btn-sm, .mailu-flow-admin .btn-xs { min-height:31px; padding:4px 9px; font-size:12px; }
+.mailu-flow-admin .btn-primary, .mailu-flow-admin .btn-info { color:#fff; background:var(--flow-blue); border-color:var(--flow-blue); }
+.mailu-flow-admin .btn-primary:hover, .mailu-flow-admin .btn-info:hover { color:#fff; background:#315bb7; border-color:#315bb7; }
+.mailu-flow-admin .btn-default, .mailu-flow-admin .btn-secondary { color:var(--flow-text); background:#fff; border-color:#dfe5ee; }
+.mailu-flow-admin .btn-default:hover, .mailu-flow-admin .btn-secondary:hover { background:var(--flow-soft); color:var(--flow-text); }
+.mailu-flow-admin .btn-danger { background:var(--flow-danger); border-color:var(--flow-danger); color:#fff; }
+.mailu-flow-admin .btn-outline-danger { border-color:#efc8c3; background:#fff5f3; color:#af4b42; }
+.mailu-flow-admin .btn-link { color:var(--flow-blue); }
+.mailu-flow-admin .btn:disabled, .mailu-flow-admin .btn.disabled { opacity:.45; }
+.mailu-flow-admin .btn-group { flex-wrap:wrap; }
+.mailu-flow-admin .flow-table-scroll, .mailu-flow-admin .table-responsive { max-width:100%; overflow-x:auto; scrollbar-width:thin; }
+.mailu-flow-admin .table { margin-bottom:0; color:var(--flow-text); font-size:14px; border-color:var(--flow-line); }
+.mailu-flow-admin .table thead th { color:var(--flow-muted); font-size:12px; font-weight:500; background:var(--flow-soft); border-bottom:1px solid var(--flow-line); padding:11px 13px; vertical-align:middle; }
+.mailu-flow-admin .table tbody td, .mailu-flow-admin .table tbody th { padding:13px; border-color:var(--flow-line); vertical-align:middle; line-height:1.6; }
+.mailu-flow-admin .table tbody tr:nth-of-type(odd) { background:transparent; }
+.mailu-flow-admin .table tbody tr:hover { background:#f7f9fd; }
+.mailu-flow-admin .table .btn { white-space:nowrap; }
+.mailu-flow-admin .table td code { overflow-wrap:anywhere; }
+.mailu-flow-admin .flow-table-scroll:focus-visible { outline:2px solid var(--flow-blue); outline-offset:2px; }
+.mailu-flow-admin .badge { font-size:12px; padding:4px 7px; font-weight:500; border-radius:4px; }
+.mailu-flow-admin .badge-info, .mailu-flow-admin .badge-primary { color:var(--flow-blue); background:var(--flow-blue-soft); }
+.mailu-flow-admin .alert { border-radius:5px; padding:13px 16px; font-size:14px; line-height:1.7; overflow-wrap:anywhere; box-shadow:none; }
+.mailu-flow-admin .alert-info { background:#edf3fd; border:1px solid #dbe6fc; color:#315591; }
+.mailu-flow-admin .alert-danger { background:#fff2ef; border:1px solid #efcfca; color:#a6453d; }
+.mailu-flow-admin .alert-warning { background:#fff8e9; border:1px solid #eddfbb; color:#876825; }
+.mailu-flow-admin .alert-success { background:#edf7f2; border:1px solid #d6e9df; color:#337158; }
+.mailu-flow-admin .nav-tabs { border-color:var(--flow-line); gap:12px; overflow-x:auto; flex-wrap:nowrap; }
+.mailu-flow-admin .nav-tabs .nav-link { border:0; border-bottom:2px solid transparent; border-radius:0; padding:14px 8px; white-space:nowrap; color:var(--flow-muted); }
+.mailu-flow-admin .nav-tabs .nav-link.active { color:var(--flow-blue); border-bottom-color:var(--flow-blue); background:#fff; }
+.mailu-flow-admin .page-link { color:var(--flow-blue); border-color:var(--flow-line); }
+.mailu-flow-admin .page-item.active .page-link { background:var(--flow-blue); border-color:var(--flow-blue); }
+.mailu-flow-admin pre { padding:16px; border:1px solid var(--flow-line); border-radius:5px; background:var(--flow-soft); white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.7; }
+.mailu-flow-admin code { color:#4266a0; font-size:12px; }
+.mailu-flow-admin .modal-dialog { min-height:calc(100% - 48px); display:flex; align-items:center; width:calc(100% - 48px); max-width:600px; margin:24px auto; }
+.mailu-flow-admin .modal-content { border:1px solid var(--flow-line); border-radius:7px; box-shadow:0 20px 70px #23385638; max-height:calc(100dvh - 48px); overflow:hidden; }
+.mailu-flow-admin .modal-body { overflow-y:auto; min-height:0; padding:20px 24px; }
+.mailu-flow-admin .modal-header, .mailu-flow-admin .modal-footer { flex-shrink:0; padding:16px 24px; border-color:var(--flow-line); }
+.mailu-flow-admin .modal-footer { background:var(--flow-soft); flex-wrap:wrap; }
+.mailu-flow-admin .modal-title { font-size:17px; font-weight:600; }
+.mailu-flow-admin :is(a,button,input,select,textarea):focus-visible { outline:2px solid var(--flow-blue); outline-offset:2px; }
+#flow-admin-nav-toggle, #flow-admin-nav-close, #flow-admin-nav-backdrop { display:none; }
+@media(max-width:1100px) {
+  .mailu-flow-admin .content-wrapper { padding-right:22px; padding-left:22px; }
+  .mailu-flow-admin .main-header { padding:0 17px; }
+}
+@media(max-width:900px) {
+  .mailu-flow-admin .main-sidebar { width:236px!important; transform:translateX(-100%)!important; z-index:1051; }
+  .mailu-flow-admin.flow-admin-nav-open .main-sidebar { transform:translateX(0)!important; }
+  .mailu-flow-admin .main-header, .mailu-flow-admin .content-wrapper, .mailu-flow-admin .main-footer { margin-left:0!important; }
+  .mailu-flow-admin .main-header { padding:0 12px; height:58px; }
+  #flow-admin-nav-toggle, #flow-admin-nav-close { display:inline-flex; align-items:center; justify-content:center; width:33px; height:33px; flex:none; padding:0; margin-right:6px; border:0; border-radius:4px; background:transparent; color:#68788e; cursor:pointer; }
+  #flow-admin-nav-close { position:absolute; right:8px; top:20px; z-index:2; margin:0; font-size:25px; line-height:1; }
+  .mailu-flow-admin .brand-link { padding-right:45px!important; }
+  #flow-admin-nav-toggle:hover, #flow-admin-nav-close:hover { background:#eef1f7; color:#3c68cb; }
+  .mailu-flow-admin.flow-admin-nav-open { overflow:hidden; }
+  .mailu-flow-admin.flow-admin-nav-open #flow-admin-nav-backdrop { display:block; position:fixed; inset:0; width:100%; height:100%; border:0; border-radius:0; padding:0; margin:0; background:#1b294955; z-index:1050; cursor:pointer; }
+  .mailu-flow-admin .content-wrapper { padding:0 15px 20px; }
+  .mailu-flow-admin .content-header { padding:21px 0 17px; }
+  .mailu-flow-admin .content-header h1 { font-size:22px!important; }
+  .mailu-flow-admin .content-header .breadcrumb.float-sm-right { float:none!important; margin-top:5px; }
+  .mailu-flow-admin .main-footer { padding:15px; overflow-wrap:anywhere; }
+  .mailu-flow-admin .card-header, .mailu-flow-admin .box-header { padding:14px 15px; }
+  .mailu-flow-admin .card-body, .mailu-flow-admin .box-body { padding:16px 15px; }
+  .mailu-flow-admin .card-footer, .mailu-flow-admin .box-footer { padding:12px 15px; }
+  .mailu-flow-admin .table th, .mailu-flow-admin .table td { white-space:nowrap; }
+  .mailu-flow-admin .table td code { white-space:normal; }
+  .mailu-flow-admin .form-inline { gap:10px; align-items:stretch; }
+  .mailu-flow-admin .form-inline>.form-group, .mailu-flow-admin .form-inline>.form-control { width:100%; }
+  .mailu-flow-admin .form-inline label { justify-content:flex-start; }
+  .mailu-flow-admin .form-inline .btn { width:auto; }
+  .mailu-flow-admin .form-group .input-group-text { max-width:45vw; }
+  .mailu-flow-admin .modal-dialog { min-height:calc(100% - 24px); width:calc(100% - 24px); margin:12px auto; }
+  .mailu-flow-admin .modal-content { max-height:calc(100dvh - 24px); }
+  .mailu-flow-admin .modal-header, .mailu-flow-admin .modal-footer { padding:15px 16px; }
+  .mailu-flow-admin .modal-body { padding:17px 16px; }
+}
+@media(prefers-reduced-motion:reduce) { .mailu-flow-admin .main-sidebar { transition:none; } }
+/* The outer Mailu shell owns navigation when a native page is embedded. */
+html.flow-embedded-surface .mailu-flow-admin .main-sidebar { display:none!important; }
+html.flow-embedded-surface .mailu-flow-admin :is(.main-header,.content-wrapper,.main-footer) { margin-left:0!important; }

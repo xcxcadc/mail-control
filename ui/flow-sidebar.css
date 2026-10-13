@@ -1,0 +1,75 @@
+/* Shared native/Shadow DOM sidebar. Existing menu nodes and permissions stay intact. */
+:host {
+  --flow-text:#2d3544; --flow-muted:#68788e; --flow-line:#e6eaf0;
+  --flow-blue:#3c68cb; --flow-blue-soft:#edf2fc; --flow-sidebar:#f9fafc;
+  display:block; width:194px!important; color:var(--flow-text); background:var(--flow-sidebar)!important;
+  font:14px/1.5 Inter,"Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;
+  letter-spacing:0; color-scheme:light;
+}
+.flow-sidebar-surface { --flow-text:#2d3544; --flow-muted:#68788e; --flow-line:#e6eaf0; --flow-blue:#3c68cb; --flow-blue-soft:#edf2fc; --flow-sidebar:#f9fafc; }
+.flow-sidebar-surface, :host { box-shadow:none!important; border-right:1px solid var(--flow-line)!important; }
+:host *, .flow-sidebar-surface * { box-sizing:border-box; letter-spacing:0; }
+:host .brand, .flow-sidebar-surface .brand-link {
+  display:flex!important; align-items:center; gap:10px; height:74px; min-height:74px;
+  padding:0 20px!important; margin:0; color:var(--flow-text)!important; background:var(--flow-sidebar)!important;
+  border-bottom:1px solid var(--flow-line)!important; font-size:22px!important; font-weight:650;
+  line-height:1.2; text-decoration:none; white-space:normal;
+}
+.flow-sidebar-surface .brand-link .brand-image { float:none; max-height:25px; width:25px; height:25px; margin:0!important; opacity:1; border-radius:4px; box-shadow:none!important; }
+.flow-sidebar-surface .brand-link .brand-text { margin:0!important; font-weight:650!important; font-size:22px; }
+:host .brand i, .flow-sidebar-surface .brand-link>i { color:var(--flow-blue); font-size:22px; }
+:host .sidebar, .flow-sidebar-surface .sidebar {
+  display:flex!important; flex-direction:column; height:calc(100dvh - 74px)!important;
+  min-height:0; padding:0 9px!important; overflow-x:hidden!important; overflow-y:auto!important;
+  scrollbar-width:thin; scrollbar-color:#cad4e6 transparent;
+}
+:host .sidebar>nav, .flow-sidebar-surface .sidebar>nav { flex:1 0 auto; min-width:0; margin:0!important; padding:0; }
+:host .nav-sidebar, .flow-sidebar-surface .nav-sidebar { width:100%!important; margin:0; padding:0; list-style:none; display:flex; flex-direction:column; }
+:host .nav-sidebar>.nav-item, .flow-sidebar-surface .nav-sidebar>.nav-item { width:100%; margin:0; }
+:host .nav-sidebar .nav-header, .flow-sidebar-surface .nav-sidebar .nav-header {
+  padding:17px 10px 7px!important; margin:0; color:var(--flow-muted)!important; background:none!important;
+  font-size:12px!important; font-weight:500; line-height:18px; text-transform:none!important;
+}
+:host .nav-sidebar .nav-link, .flow-sidebar-surface .nav-sidebar .nav-link {
+  position:relative; display:flex!important; align-items:center; gap:10px; min-height:36px;
+  width:100%!important; padding:7px 10px!important; margin:0 0 2px!important; border:0!important;
+  border-radius:4px!important; background:transparent; color:var(--flow-muted)!important;
+  font-size:14px!important; font-weight:400; line-height:22px; text-decoration:none;
+  white-space:normal; box-shadow:none!important;
+}
+:host .nav-sidebar .nav-link:hover, :host .nav-sidebar .nav-link:focus-visible,
+.flow-sidebar-surface .nav-sidebar .nav-link:hover, .flow-sidebar-surface .nav-sidebar .nav-link:focus-visible { background:#eef1f7!important; color:var(--flow-text)!important; }
+:host .nav-sidebar .nav-link.active, .flow-sidebar-surface .nav-sidebar .nav-link.active {
+  background:var(--flow-blue-soft)!important; color:var(--flow-blue)!important; font-weight:600;
+}
+:host .nav-sidebar .nav-link.active:before, .flow-sidebar-surface .nav-sidebar .nav-link.active:before {
+  content:""; position:absolute; left:0; top:8px; bottom:8px; width:2px; border-radius:2px; background:var(--flow-blue);
+}
+:host .nav-sidebar .nav-icon, .flow-sidebar-surface .nav-sidebar .nav-icon {
+  flex:none; width:18px!important; min-width:18px; margin:0!important; text-align:center; font-size:16px!important;
+}
+:host .nav-sidebar p, .flow-sidebar-surface .nav-sidebar p { display:block!important; width:auto!important; min-width:0; margin:0!important; line-height:22px; overflow-wrap:anywhere; }
+:host .nav-sidebar p .text-xs, .flow-sidebar-surface .nav-sidebar p .text-xs { font-size:10px!important; margin-left:3px; }
+:host .user-panel, .flow-sidebar-surface .user-panel {
+  display:flex!important; align-items:center; gap:9px; flex:none; min-height:58px;
+  padding:12px 3px!important; margin:0 3px 2px!important; border-bottom:1px solid var(--flow-line)!important;
+  white-space:normal; overflow:visible;
+}
+:host .user-panel .image, .flow-sidebar-surface .user-panel .image { padding:0; flex:none; }
+:host .user-panel .image>div, .flow-sidebar-surface .user-panel .image>div {
+  display:grid; place-items:center; width:28px; height:28px; border-radius:6px; background:#eaf0fb!important; box-shadow:none!important;
+}
+:host .user-panel .image i, .flow-sidebar-surface .user-panel .image i { font-size:14px!important; color:var(--flow-blue)!important; }
+:host .user-panel .info, .flow-sidebar-surface .user-panel .info { min-width:0; padding:0; flex:1; }
+:host .user-panel .info a, .flow-sidebar-surface .user-panel .info a {
+  color:var(--flow-text)!important; font-size:12px; line-height:18px; text-decoration:none; overflow-wrap:anywhere;
+}
+:host .close-nav { display:none; position:absolute; top:20px; right:8px; width:32px; height:32px; padding:0; border:0; border-radius:4px; background:transparent; color:var(--flow-muted)!important; font:25px/1 system-ui; cursor:pointer; }
+:host .close-nav:hover { background:#eef1f7; color:var(--flow-text)!important; }
+:host a:focus-visible, :host button:focus-visible,
+.flow-sidebar-surface a:focus-visible, .flow-sidebar-surface button:focus-visible { outline:2px solid var(--flow-blue)!important; outline-offset:2px; }
+@media(max-width:900px) {
+  :host { width:236px!important; }
+  :host .close-nav { display:block; }
+  :host .brand { padding-right:45px!important; }
+}

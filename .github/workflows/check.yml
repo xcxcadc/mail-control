@@ -1,0 +1,27 @@
+name: Check source and UI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install bcrypt
+      - run: python tools/build_ui.py
+      - run: git diff --exit-code -- mail_control.py nginx/mail-control-admin.conf
+      - run: python -m unittest -v test_mail_control.py
+      - run: bash -n install.sh
+      - run: npm install --no-save playwright
+      - run: npx playwright install --with-deps chromium
+      - run: node test_ui_performance.cjs
+        env:
+          PYTHON: python

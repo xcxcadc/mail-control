@@ -9,7 +9,10 @@ import threading
 import time
 import urllib.request
 import unittest
-from unittest.mock import patch
+from email.message import EmailMessage
+from html.parser import HTMLParser
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 
@@ -169,34 +172,114 @@ with tempfile.TemporaryDirectory() as bootstrap:
 
         def test_embedded_pages_hide_their_standalone_shell(self):
             page = mail_control.html_bytes(mail_control.HTML, embedded=True).decode("utf-8")
-            self.assertIn('<body class="embedded">', page)
+            self.assertRegex(page, r'<body\b[^>]*class="[^"]*\bembedded\b[^"]*"')
             self.assertIn("body.embedded header{display:none}", page)
 
-        def test_mailu_admin_routes_and_sidebar_are_not_overridden(self):
+        def test_tool_page_requires_auth_and_renders_server_navigation(self):
+            server = mail_control.ThreadingHTTPServer(("127.0.0.1", 0), mail_control.Handler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                url = f"http://127.0.0.1:{server.server_port}/"
+                with patch.object(mail_control.Handler, "authorized", return_value=False):
+                    with self.assertRaises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(url, timeout=2)
+                    self.assertEqual(error.exception.code, 401)
+                with patch.object(mail_control.Handler, "authorized", return_value=True), \
+                        patch.object(mail_control, "flow_shell_identity", return_value="admin@example.com"), \
+                        patch.object(mail_control, "flow_shell_display_name", return_value="Fixture administrator"):
+                    with urllib.request.urlopen(url, timeout=2) as response:
+                        fragment = response.read().decode("utf-8")
+                        self.assertEqual(response.headers["Cache-Control"], "no-store")
+                        self.assertIn("Fixture administrator", fragment)
+                        self.assertIn('id="mail-control-side-nav"', fragment)
+                        self.assertIn('href="/admin/mail-control/global/"', fragment)
+                        self.assertIn('href="/admin/antispam/"', fragment)
+                        self.assertNotIn('/sidebar?', fragment)
+            finally:
+                server.shutdown()
+                thread.join(timeout=2)
+                server.server_close()
+
+        def test_sidebar_escapes_display_names_and_identity_attributes(self):
+            class SidebarInspector(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.elements = []
+                    self.text = []
+
+                def handle_starttag(self, tag, attrs):
+                    self.elements.append((tag, dict(attrs)))
+
+                def handle_data(self, data):
+                    self.text.append(data)
+
+            display_name = '<img src=x onerror="alert(1)"> & "administrator"'
+            username = 'admin" onclick="alert(2)@example.com'
+            with patch.object(mail_control, "flow_shell_display_name", return_value=display_name):
+                fragment = mail_control.flow_shell_markup(username, "/admin/mail-control/global/", "")
+            inspector = SidebarInspector()
+            inspector.feed(fragment)
+            self.assertIn(display_name, inspector.text)
+            self.assertEqual([attrs["src"] for tag, attrs in inspector.elements if tag == "img"], ["/static/mailu.png"])
+            self.assertFalse(any(name.startswith("on") for _, attrs in inspector.elements for name in attrs))
+            user_panel = next(attrs for _, attrs in inspector.elements if attrs.get("class") == "user-panel")
+            self.assertEqual(user_panel["title"], username)
+
+        def test_sidebar_display_name_lookup_is_read_only(self):
+            with tempfile.TemporaryDirectory() as directory:
+                database = Path(directory) / "fixture.db"
+                with patch.object(mail_control.CONFIG, "db_path", database):
+                    self.assertEqual(mail_control.flow_shell_display_name("admin@example.com"), "admin@example.com")
+                    self.assertFalse(database.exists(), "navigation lookup must not create a missing database")
+                    with sqlite3.connect(database) as db:
+                        db.execute("CREATE TABLE user (email TEXT PRIMARY KEY, displayed_name TEXT)")
+                        db.execute("INSERT INTO user VALUES (?, ?)", ("admin@example.com", "Fixture name"))
+                    db.close()
+                    before = database.read_bytes()
+                    self.assertEqual(mail_control.flow_shell_display_name("admin@example.com"), "Fixture name")
+                    self.assertEqual(database.read_bytes(), before)
+
+        def test_installer_uses_complete_versioned_admin_configuration(self):
             installer = Path(__file__).with_name("install.sh").read_text(encoding="utf-8")
-            self.assertNotIn("location = /admin {", installer)
-            self.assertNotIn("location ^~ /admin/ {", installer)
-            self.assertNotIn("mail-control-menu-group", installer)
-            self.assertNotIn("mail-control-embed", installer)
+            self.assertIn('$SOURCE_DIR/nginx/mail-control-admin.conf', installer)
+            self.assertIn('$RAW_BASE/nginx/mail-control-admin.conf', installer)
+            self.assertLess(installer.index('[[ -s "$ADMIN_SOURCE_FILE" ]]'),
+                            installer.index('CHANGES_APPLIED=1'))
+            self.assertNotIn('cat > "$ADMIN_TMP"', installer)
 
         def test_client_settings_and_profiles_require_a_mailu_user_session(self):
-            installer = Path(__file__).with_name("install.sh").read_text(encoding="utf-8")
+            config = (Path(__file__).parent / "nginx/mail-control-admin.conf").read_text(encoding="utf-8")
             for route in ("/admin/client", "/apple.mobileconfig", "/mobileconfig"):
                 marker = f"location = {route} {{"
-                start = installer.index(marker)
-                block = installer[start:installer.index("\n}", start)]
+                start = config.index(marker)
+                block = config[start:config.index("\n}", start)]
                 self.assertIn("auth_request /internal/auth/user;", block)
                 self.assertIn("error_page 401 403 = @sso_login;", block)
-            self.assertEqual(installer.count("rewrite ^ /internal/autoconfig/apple break;"), 2)
+            self.assertEqual(config.count("rewrite ^ /internal/autoconfig/apple break;"), 2)
 
-        def test_admin_and_rspamd_overrides_require_auth_and_embed_control(self):
-            installer = Path(__file__).with_name("install.sh").read_text(encoding="utf-8")
-            self.assertIn("location = /admin/antispam {", installer)
-            self.assertIn("location ^~ /admin/antispam/ {", installer)
-            self.assertEqual(installer.count("auth_request /internal/auth/admin;"), 1)
-            self.assertIn("mail-control-rspamd-nav", installer)
-            self.assertIn("mail-control-rspamd-panel", installer)
-            self.assertIn("/admin/mail-control/marketing/?tab=api", installer)
+        def test_admin_and_rspamd_overrides_keep_auth_and_standalone_navigation(self):
+            config = (Path(__file__).parent / "nginx/mail-control-admin.conf").read_text(encoding="utf-8")
+            self.assertIn("location = /admin/antispam {", config)
+            self.assertIn("location ^~ /admin/antispam/ {", config)
+            self.assertIn("auth_request /internal/auth/admin;", config)
+            self.assertIn("proxy_pass http://$antispam;", config)
+            self.assertIn("proxy_pass http://$admin;", config)
+            self.assertNotIn("mail-control-rspamd-panel", config)
+            self.assertNotIn("embedded=1", config)
+            self.assertIn("marketing/?tab=api", mail_control.NAVIGATION_JS)
+            start = config.index("location ^~ /admin/antispam/ {")
+            rspamd = config[start:config.index("\n# Mailu native pages", start)]
+            self.assertIn("auth_request /internal/auth/admin;", rspamd)
+            self.assertIn('sub_filter "<body>" "<body><style>', rspamd)
+            self.assertIn('id=\\"mail-control-side-nav\\"', rspamd)
+            self.assertIn('class=\\"flow-server-sidebar flow-sidebar-surface\\"', rspamd)
+            self.assertIn('id=\\"mail-control-nav-toggle\\"', rspamd)
+            self.assertIn('sub_filter "</body>"', rspamd)
+            self.assertNotIn("navigation.js", rspamd)
+            self.assertNotIn("ssi on;", rspamd)
+            self.assertNotIn("include virtual", rspamd)
+            self.assertNotIn("/sidebar", rspamd)
 
         def test_installer_disables_automatic_rspamd_rejects_but_keeps_manual_maps(self):
             installer = Path(__file__).with_name("install.sh").read_text(encoding="utf-8")
@@ -227,17 +310,179 @@ with tempfile.TemporaryDirectory() as bootstrap:
 
         def test_html_preview_removes_active_content(self):
             preview = mail_control.sanitize_html(
+                '<base href="https://bad.example"><embed src="evil"><input value="hidden">'
+                '<meta http-equiv="refresh" content="0;url=https://bad.example">'
                 '<div onclick="alert(1)"><img src="https://example.com/a.png">'
-                '<script>alert(2)</script>正文</div>'
+                '<script>hidden-script</script><iframe><p>hidden-frame</p></iframe>'
+                '<form><p>hidden-form</p></form><object>hidden-object</object>'
+                '<a href="javascript:alert(2)">可见链接</a>'
+                '<img src="javascript:alert(3)" onerror="alert(4)">'
+                '<p>正文-END</p></div>'
             )
+            class MarkupInspector(HTMLParser):
+                def __init__(self):
+                    super().__init__()
+                    self.elements = []
+
+                def handle_starttag(self, tag, attrs):
+                    self.elements.append((tag, dict(attrs)))
+
+            inspector = MarkupInspector()
+            inspector.feed(preview)
             self.assertIn("https://example.com/a.png", preview)
-            self.assertIn("正文", preview)
-            self.assertNotIn("onclick", preview)
-            self.assertNotIn("script", preview.lower())
+            self.assertIn("正文-END", preview)
+            self.assertIn("可见链接", preview)
+            self.assertFalse({tag for tag, _ in inspector.elements} & {
+                "base", "embed", "input", "meta", "script", "iframe", "form", "object",
+            })
+            for _, attrs in inspector.elements:
+                self.assertFalse(any(name.startswith("on") for name in attrs))
+                self.assertFalse(any("javascript:" in value.lower() for value in attrs.values() if value))
+            for hidden in ("hidden-script", "hidden-frame", "hidden-form", "hidden-object"):
+                self.assertNotIn(hidden, preview)
+
+        def test_large_mime_body_cid_and_attachment_survive_detail_endpoints(self):
+            message = EmailMessage()
+            message["Subject"] = "完整图文邮件"
+            message.set_content("纯文本备用正文")
+            message.add_alternative(
+                '<base href="https://bad.example"><embed src="hidden">'
+                '<p>正文开头</p><img src="cid:pixel">' + ("long body " * 130000)
+                + '<p>END-OF-FULL-MESSAGE</p>', subtype="html",
+            )
+            image_bytes = b"\x89PNG\r\n\x1a\n"
+            message.get_payload()[1].add_related(
+                image_bytes, maintype="image", subtype="png", cid="<pixel>",
+            )
+            attachment_bytes = b"complete attachment payload"
+            message.add_attachment(
+                attachment_bytes, maintype="application", subtype="octet-stream",
+                filename="fixture.txt",
+            )
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "large.eml"
+                path.write_bytes(message.as_bytes())
+                parsed = mail_control.parse_message(path)
+                self.assertGreater(len(parsed["html"]), 1024 * 1024)
+                self.assertIn("正文开头", parsed["html"])
+                self.assertIn("END-OF-FULL-MESSAGE", parsed["html"])
+                self.assertIn("纯文本备用正文", parsed["text"])
+                self.assertIn("data:image/png;base64," + base64.b64encode(image_bytes).decode(), parsed["html"])
+                self.assertEqual([item["filename"] for item in parsed["attachments"]], ["fixture.txt"])
+                self.assertEqual(parsed["attachments"][0]["size"], len(attachment_bytes))
+                server = mail_control.ThreadingHTTPServer(("127.0.0.1", 0), mail_control.Handler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    url = f"http://127.0.0.1:{server.server_port}/api/"
+                    query = urllib.parse.urlencode({"mailbox": self.mailbox, "path": "fixture"})
+                    with patch.object(mail_control.Handler, "authorized", return_value=True), \
+                            patch.object(mail_control, "safe_message", return_value=path):
+                        with urllib.request.urlopen(url + "body?" + query, timeout=5) as response:
+                            body = response.read().decode("utf-8")
+                            self.assertIn("END-OF-FULL-MESSAGE", body)
+                            self.assertIn("正文开头", body)
+                            self.assertIn("script-src 'none'", response.headers["Content-Security-Policy"])
+                        attachment_query = query + "&part=" + str(parsed["attachments"][0]["part"])
+                        with urllib.request.urlopen(url + "attachment?" + attachment_query, timeout=5) as response:
+                            self.assertEqual(response.read(), attachment_bytes)
+                            self.assertTrue(response.headers["Content-Disposition"].startswith("attachment;"))
+                            self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+                finally:
+                    server.shutdown()
+                    thread.join(timeout=2)
+                    server.server_close()
+
+        def test_global_filters_use_exact_mailbox_domain_and_prefix(self):
+            boxes = ["support@example.com", "support-extra@example.com", "support@other.example"]
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for box in boxes:
+                    (root / box / "new").mkdir(parents=True)
+                    self._write(root / box / "new" / "inbox", box, "body")
+                with patch.object(mail_control.CONFIG, "mail_root", root), \
+                        patch.object(mail_control, "global_mailboxes", return_value=boxes):
+                    listing = mail_control.list_global_messages()
+                    self.assertEqual(listing["total"], 3)
+                    exact = mail_control.list_global_messages(mailbox="SUPPORT@EXAMPLE.COM")
+                    self.assertEqual([item["mailbox"] for item in exact["messages"]], [boxes[0]])
+                    domain = mail_control.list_global_messages(domain="EXAMPLE.COM")
+                    self.assertEqual({item["mailbox"] for item in domain["messages"]}, set(boxes[:2]))
+                    prefix = mail_control.list_global_messages(prefix="SUPPORT", domain="example.com")
+                    self.assertEqual([item["mailbox"] for item in prefix["messages"]], [boxes[0]])
+                    self.assertEqual(mail_control.list_global_messages(prefix="supp", domain="example.com")["total"], 0)
+                    self.assertEqual(mail_control.list_global_messages(domain="ample.com")["total"], 0)
+                    for filters in ({"prefix": "support"},
+                                    {"mailbox": boxes[0], "domain": "other.example"},
+                                    {"mailbox": boxes[1], "domain": "example.com", "prefix": "support"}):
+                        with self.subTest(filters=filters), self.assertRaises(ValueError):
+                            mail_control.list_global_messages(**filters)
+
+        def test_global_unread_includes_new_and_cur_without_seen_flag(self):
+            # Maildir flags contain colons, which Windows cannot create. Mock only
+            # file metadata so the same inbox/flag contract is checked on every OS.
+            root = MagicMock(spec=Path)
+            root.is_dir.return_value = True
+            relatives = ["new/arrival", "cur/unseen:2,", "cur/seen:2,S"]
+            files = {}
+            for index, relative in enumerate(relatives):
+                path = MagicMock(spec=Path)
+                path.resolve.return_value = path
+                path.parents = [root]
+                path.name = relative.rsplit("/", 1)[-1]
+                path.is_symlink.return_value = False
+                path.stat.return_value = SimpleNamespace(st_dev=1, st_ino=index,
+                    st_mtime_ns=index, st_ctime_ns=index, st_size=40)
+                files[relative] = path
+            root.__truediv__.side_effect = files.__getitem__
+            headers = {key: "test" for key in ("subject", "from", "to", "cc", "date")}
+            with patch.object(mail_control, "global_mailboxes", return_value=[self.mailbox]), \
+                    patch.object(mail_control, "global_mailbox_root", return_value=root), \
+                    patch.object(mail_control, "_message_files", return_value=[
+                        (index, relative, "INBOX") for index, relative in enumerate(relatives)]), \
+                    patch.object(mail_control, "_message_headers", return_value=headers):
+                self.assertEqual(mail_control.list_global_messages()["total"], 3)
+                unread = mail_control.list_global_messages(scope="unread")
+                self.assertEqual({item["id"] for item in unread["messages"]}, {"arrival", "unseen"})
+                self.assertTrue(all(item["unread"] for item in unread["messages"]))
+
+        def test_global_identity_survives_new_to_cur_delivery_transition(self):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                inbox = root / self.mailbox
+                (inbox / "new").mkdir(parents=True)
+                (inbox / "cur").mkdir()
+                self._write(inbox / "new" / "arrival", "Arrival", "body")
+                with patch.object(mail_control.CONFIG, "mail_root", root), \
+                        patch.object(mail_control, "global_mailboxes", return_value=[self.mailbox]):
+                    listing = mail_control.list_global_messages(scope="unread")
+                    self.assertEqual(listing["total"], 1)
+                    item = listing["messages"][0]
+                    (inbox / "new" / "arrival").rename(inbox / "cur" / "arrival")
+                    path = mail_control.global_message_path(item["mailbox"], item["id"], item["folder"])
+                    self.assertEqual(path, inbox / "cur" / "arrival")
+                    self.assertEqual(mail_control.list_global_messages(scope="unread")["total"], 1)
+
+        def test_custom_sender_allows_new_prefix_only_on_existing_domains(self):
+            payload = {"prefix": "Release+2026", "domain": "EXAMPLE.COM",
+                       "from": "ignored@outside.example", "to": "recipient@example.net",
+                       "subject": "preview", "text": "body", "dry_run": True}
+            with patch.object(mail_control, "list_domains", return_value=[{"name": "example.com"}]), \
+                    patch.object(mail_control.smtplib, "SMTP", side_effect=AssertionError("real SMTP used")) as smtp:
+                preview = mail_control.custom_send_message(payload)
+                self.assertTrue(preview["dry_run"])
+                self.assertEqual(preview["from"], "release+2026@example.com")
+                self.assertNotIn(preview["from"], mail_control.mailboxes())
+                for changed in ({"domain": "outside.example"}, {"prefix": "bad prefix"},
+                                {"prefix": "bad@example.com"}, {"prefix": ".bad"},
+                                {"prefix": "bad..prefix"}, {"prefix": "a" * 65}):
+                    with self.subTest(changed=changed), self.assertRaises(ValueError):
+                        mail_control.custom_send_message({**payload, **changed})
+                smtp.assert_not_called()
 
         def test_dry_run_supports_html_inline_image_and_attachment(self):
             image = base64.b64encode(b"fake-image").decode("ascii")
-            result = mail_control.send_message({
+            payload = {
                 "from": self.mailbox,
                 "to": "recipient@example.net",
                 "subject": "图文测试",
@@ -252,7 +497,10 @@ with tempfile.TemporaryDirectory() as bootstrap:
                     "content_id": "test-image",
                 }],
                 "dry_run": True,
-            })
+            }
+            with patch.object(mail_control.smtplib, "SMTP", side_effect=AssertionError("real SMTP used")) as smtp:
+                result = mail_control.send_message(payload)
+                smtp.assert_not_called()
             self.assertTrue(result["dry_run"])
             self.assertTrue(result["html"])
             self.assertEqual(result["attachments"][0]["filename"], "image.png")

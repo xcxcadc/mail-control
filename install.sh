@@ -226,6 +226,32 @@ require_command docker
 require_command systemctl
 require_command install
 require_command python3
+
+# Fetch and validate the complete release before changing host files or dependencies.
+TMP_DIR="$(mktemp -d -t mail-control-install.XXXXXX)"
+SOURCE_FILE="$TMP_DIR/mail_control.py"
+ADMIN_SOURCE_FILE="$TMP_DIR/mail-control-admin.conf"
+if [[ -n "$SOURCE_DIR" ]]; then
+    [[ -f "$SOURCE_DIR/mail_control.py" ]] || fail "mail_control.py not found in $SOURCE_DIR"
+    [[ -f "$SOURCE_DIR/nginx/mail-control-admin.conf" ]] ||
+        fail "nginx/mail-control-admin.conf not found in $SOURCE_DIR; use a complete checkout"
+    cp -- "$SOURCE_DIR/mail_control.py" "$SOURCE_FILE"
+    cp -- "$SOURCE_DIR/nginx/mail-control-admin.conf" "$ADMIN_SOURCE_FILE"
+else
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --retry 3 --connect-timeout 15 "$RAW_BASE/mail_control.py" -o "$SOURCE_FILE"
+        curl -fsSL --retry 3 --connect-timeout 15 "$RAW_BASE/nginx/mail-control-admin.conf" -o "$ADMIN_SOURCE_FILE"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$SOURCE_FILE" "$RAW_BASE/mail_control.py"
+        wget -qO "$ADMIN_SOURCE_FILE" "$RAW_BASE/nginx/mail-control-admin.conf"
+    else
+        fail "curl or wget is required to download the application source"
+    fi
+fi
+[[ -s "$SOURCE_FILE" ]] || fail "application source is empty"
+[[ -s "$ADMIN_SOURCE_FILE" ]] || fail "Mailu admin override source is empty"
+python3 -m py_compile "$SOURCE_FILE"
+
 docker info >/dev/null 2>&1 || fail "Docker daemon is not available"
 
 if [[ -z "$FRONT_CONTAINER" ]]; then
@@ -346,23 +372,6 @@ if [[ -z "$PROXY_SECRET" ]]; then
 fi
 [[ "$PROXY_SECRET" =~ ^[A-Fa-f0-9]{64}$ ]] || fail "MAIL_CONTROL_PROXY_SECRET must be a 64-character hexadecimal value"
 
-TMP_DIR="$(mktemp -d -t mail-control-install.XXXXXX)"
-SOURCE_FILE="$TMP_DIR/mail_control.py"
-if [[ -n "$SOURCE_DIR" ]]; then
-    [[ -f "$SOURCE_DIR/mail_control.py" ]] || fail "mail_control.py not found in $SOURCE_DIR"
-    cp -- "$SOURCE_DIR/mail_control.py" "$SOURCE_FILE"
-else
-    if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 3 --connect-timeout 15 "$RAW_BASE/mail_control.py" -o "$SOURCE_FILE"
-    elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$SOURCE_FILE" "$RAW_BASE/mail_control.py"
-    else
-        fail "curl or wget is required to download the application source"
-    fi
-fi
-[[ -s "$SOURCE_FILE" ]] || fail "application source is empty"
-"$PYTHON_BIN" -m py_compile "$SOURCE_FILE"
-
 BACKUP_DIR="$INSTALL_DIR/backups/$(date +%Y%m%d-%H%M%S)"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 CONTROL_OVERRIDE="$OVERRIDE_DIR/mail-control.conf"
@@ -394,7 +403,7 @@ CHANGES_APPLIED=1
 
 SERVICE_TMP="$TMP_DIR/mail-control.service"
 CONTROL_TMP="$TMP_DIR/mail-control.conf"
-ADMIN_TMP="$TMP_DIR/mail-control-admin.conf"
+ADMIN_TMP="$ADMIN_SOURCE_FILE"
 RSPAMD_ACTIONS_TMP="$TMP_DIR/actions.conf"
 RSPAMD_GREYLIST_TMP="$TMP_DIR/greylist.conf"
 RSPAMD_FORCE_ACTIONS_TMP="$TMP_DIR/force_actions.conf"
@@ -529,50 +538,7 @@ FORBIDDEN_FILE_EXTENSION {
 EOF
 fi
 
-cat > "$ADMIN_TMP" <<'EOF'
-location = /admin/client {
-    auth_request /internal/auth/user;
-    error_page 401 403 = @sso_login;
-    include /etc/nginx/proxy.conf;
-    proxy_pass http://$admin;
-    expires $expires;
-}
-
-location = /apple.mobileconfig {
-    auth_request /internal/auth/user;
-    error_page 401 403 = @sso_login;
-    rewrite ^ /internal/autoconfig/apple break;
-    include /etc/nginx/proxy.conf;
-    proxy_pass http://$admin;
-}
-
-location = /mobileconfig {
-    auth_request /internal/auth/user;
-    error_page 401 403 = @sso_login;
-    rewrite ^ /internal/autoconfig/apple break;
-    include /etc/nginx/proxy.conf;
-    proxy_pass http://$admin;
-}
-
-location = /admin/antispam {
-    return 301 /admin/antispam/;
-}
-
-location ^~ /admin/antispam/ {
-    rewrite ^/admin/antispam/(.*) /$1 break;
-    auth_request /internal/auth/admin;
-    error_page 401 403 = @sso_login;
-    proxy_set_header X-Real-IP "";
-    proxy_set_header X-Forwarded-For "";
-    proxy_set_header X-Forwarded-By "";
-    proxy_set_header Accept-Encoding "";
-    sub_filter_once on;
-    sub_filter "</head>" "<style>#mail-control-rspamd-nav{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 12px 0 0;padding:3px 8px;border:1px solid rgba(0,0,0,.12);border-radius:4px;background:#fff}#mail-control-rspamd-nav .mail-control-label{font-size:12px;color:#6c757d;margin-right:2px}#mail-control-rspamd-nav button{border:0;border-radius:3px;background:transparent;color:#495057;padding:5px 8px;font-size:13px;cursor:pointer}#mail-control-rspamd-nav button:hover,#mail-control-rspamd-nav button:focus{background:#e9ecef;color:#212529;outline:0}#mail-control-rspamd-panel{position:fixed;z-index:2000;inset:64px 18px 18px;background:#fff;border:1px solid #ced4da;box-shadow:0 8px 32px rgba(0,0,0,.24);display:flex;flex-direction:column}#mail-control-rspamd-panel[hidden]{display:none}#mail-control-rspamd-panel .mail-control-panel-head{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 12px;border-bottom:1px solid #dee2e6;background:#f8f9fa;color:#343a40;font-size:14px}#mail-control-rspamd-panel .mail-control-panel-close{border:0;background:transparent;color:#495057;font-size:24px;line-height:1;cursor:pointer;padding:2px 8px}#mail-control-rspamd-panel iframe{width:100%;height:100%;border:0;background:#f5f7f9}@media(max-width:767px){#mail-control-rspamd-nav{margin:8px 0;max-width:100%}#mail-control-rspamd-panel{inset:8px;z-index:3000}}</style></head>";
-    sub_filter "</body>" "<script>(function(){var items=[{label:'邮件控制',href:'/admin/mail-control/'},{label:'批量邮箱',href:'/admin/mail-control/accounts/'},{label:'邮件营销',href:'/admin/mail-control/marketing/'},{label:'发件 API',href:'/admin/mail-control/marketing/?tab=api'}];var panelRequest=0;async function openPanel(item){var request=++panelRequest,panel=document.getElementById('mail-control-rspamd-panel');if(!panel){panel=document.createElement('section');panel.id='mail-control-rspamd-panel';panel.hidden=true;panel.innerHTML='<div class=\"mail-control-panel-head\"><span></span><button type=\"button\" class=\"mail-control-panel-close\" aria-label=\"关闭\">×</button></div>';document.body.appendChild(panel);panel.querySelector('.mail-control-panel-close').onclick=function(){++panelRequest;panel.hidden=true}}panel.hidden=true;try{var auth=await fetch('/admin/mail-control/api/status',{cache:'no-store',redirect:'error'});if(!auth.ok)throw Error('请重新登录');var state=await auth.json();if(!state.ok)throw Error('请重新登录')}catch(e){panel.querySelectorAll('iframe').forEach(function(f){f.remove()});if(request===panelRequest)location.href='/sso/login';return}if(request!==panelRequest)return;var frame=null;panel.querySelectorAll('iframe').forEach(function(f){f.hidden=true;if(f.dataset.menu===item.href)frame=f});if(!frame){frame=document.createElement('iframe');frame.title=item.label;frame.dataset.menu=item.href;frame.src=item.href+(item.href.indexOf('?')>=0?'&':'?')+'embedded=1';panel.appendChild(frame)}else{try{frame.contentWindow.dispatchEvent(new frame.contentWindow.Event('mail-control-activate'))}catch(e){}}frame.hidden=false;panel.querySelector('.mail-control-panel-head span').textContent=item.label;panel.hidden=false}function init(){if(document.getElementById('mail-control-rspamd-nav'))return;var nav=document.createElement('nav');nav.id='mail-control-rspamd-nav';var label=document.createElement('span');label.className='mail-control-label';label.textContent='中控菜单';nav.appendChild(label);items.forEach(function(item){var b=document.createElement('button');b.type='button';b.textContent=item.label;b.onclick=function(){openPanel(item)};nav.appendChild(b)});var tabs=document.getElementById('tablist');if(tabs&&tabs.parentNode)tabs.parentNode.insertBefore(nav,tabs);else document.body.insertBefore(nav,document.body.firstChild)}if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init()})()</script></body>";
-    proxy_pass http://$antispam;
-}
-EOF
-
+# Use the complete, versioned admin override from the same source checkout/ref.
 cat > "$DOVECOT_TMP" <<'EOF'
 # Mail Control aggregate mailbox for webmail and IMAP clients.
 # The virtual plugin indexes existing mail in place; it does not copy, move,
