@@ -24,7 +24,7 @@ def replace_constant(source, name, value):
 def main():
     source = BASE.read_text(encoding='utf-8')
     assets = {name: (HERE / name).read_text(encoding='utf-8') for name in
-              ('flow-tools.css', 'flow-tools.js', 'flow-admin.css', 'flow-admin.js', 'flow-sidebar.css', 'flow-surfaces.css', 'flow-surfaces.js', 'flow-bootstrap.js', 'flow-shell.css', 'flow-shell.js')}
+              ('flow-tools.css', 'flow-tools.js', 'flow-admin.css', 'flow-admin.js', 'flow-sidebar.css', 'flow-surfaces.css', 'flow-surfaces.js', 'flow-bootstrap.js', 'flow-shell.css', 'flow-shell.js', 'flow-help.css', 'flow-help.js')}
     for name, value in assets.items():
         if name.endswith('.js') and '</script' in value.lower():
             raise ValueError('Unsafe script delimiter in ' + name)
@@ -74,7 +74,7 @@ def main():
     classes = 'flow-tools ' + page_class + (' embedded' if embedded else ' mail-control-shell')
     template = template.replace('<body class="embedded">', '<body class="' + classes + '">', 1) if embedded else template.replace('<body>', '<body class="' + classes + '">', 1)
     preload = '<script>if(self!==top)document.documentElement.classList.add("flow-embedded-surface");</script>'
-    theme_css = FLOW_UI_ASSETS["flow-tools.css"] + ('' if embedded else FLOW_UI_ASSETS['flow-shell.css'])
+    theme_css = FLOW_UI_ASSETS["flow-tools.css"] + FLOW_UI_ASSETS['flow-help.css'] + ('' if embedded else FLOW_UI_ASSETS['flow-shell.css'])
     template = template.replace("</head>", "<style>" + theme_css + "</style>" + preload + "</head>", 1)
     if not embedded:
         body_start = template.index('>', template.index('<body')) + 1
@@ -82,7 +82,7 @@ def main():
     # Dialog markup follows main on some pages. Run after it has parsed but
     # before the existing page script starts requests and handlers.
     theme_pos = template.find('<script', template.index('</main>') + len('</main>'))
-    theme_script = '<script>' + FLOW_UI_ASSETS['flow-tools.js'] + '</script>'
+    theme_script = '<script>' + FLOW_UI_ASSETS['flow-tools.js'] + '</script><script>' + FLOW_UI_ASSETS['flow-help.js'] + '</script>'
     template = template[:theme_pos] + theme_script + template[theme_pos:] if theme_pos >= 0 else template.replace('</body>', theme_script + '</body>', 1)
     template = template.replace('<script defer src="/admin/mail-control/navigation.js"></script>', '', 1)
     template = template.replace("</body>", "<script>" + FLOW_UI_ASSETS["flow-admin.js"] + "</script></body>", 1)
@@ -149,11 +149,11 @@ def main():
     conf = re.sub(r'^    sub_filter "</body>".*\n', '', conf, flags=re.MULTILINE)
     def asset_url(name):
         return '/admin/mail-control/ui/' + name + '?v=' + hashlib.sha256(assets[name].encode()).hexdigest()[:12]
-    head = '<link rel="stylesheet" href="' + asset_url('flow-admin.css') + '"><link data-flow-native-sidebar="true" rel="stylesheet" href="' + asset_url('flow-sidebar.css') + '"><script>' + assets['flow-bootstrap.js'] + '</script></head>'
+    head = '<link rel="stylesheet" href="' + asset_url('flow-admin.css') + '"><link data-flow-native-sidebar="true" rel="stylesheet" href="' + asset_url('flow-sidebar.css') + '"><link rel="stylesheet" href="' + asset_url('flow-help.css') + '"><script>' + assets['flow-bootstrap.js'] + '</script></head>'
     nav_url = '/admin/mail-control/navigation.js?v=' + nav_version
     # Fixed theme scripts contain no account data. Keep them as authenticated
     # assets so Nginx replacement stays a single-line, syntax-safe directive.
-    body = '<script src="' + asset_url('flow-navigation.js') + '"></script><script src="' + asset_url('flow-admin.js') + '"></script></body>'
+    body = '<script src="' + asset_url('flow-navigation.js') + '"></script><script src="' + asset_url('flow-admin.js') + '"></script><script defer src="' + asset_url('flow-help.js') + '"></script></body>'
     def quote(value):
         return value.replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$')
     theme_filters = '    proxy_set_header Accept-Encoding "";\n    sub_filter_once on;\n    sub_filter "</head>" "' + quote(head) + '";\n'
@@ -169,10 +169,10 @@ def main():
         block += '\n    sub_filter "' + quote('<script src="/static/vendor.js"></script>') + '" "' + quote(body.replace('</body>', '') + '<script src="/static/vendor.js"></script>') + '";'
         block += '\n    sub_filter \'lang="None"\' \'lang="en"\';\n    sub_filter \'>None</span>\' \'>en</span>\';'
         conf = conf[:start] + block + conf[end:]
-    head_surface = '<link rel="stylesheet" href="' + asset_url('flow-surfaces.css') + '"><link rel="stylesheet" href="' + asset_url('flow-shell.css') + '"><script>' + assets['flow-bootstrap.js'] + '</script></head>'
+    head_surface = '<link rel="stylesheet" href="' + asset_url('flow-surfaces.css') + '"><link rel="stylesheet" href="' + asset_url('flow-shell.css') + '"><link rel="stylesheet" href="' + asset_url('flow-help.css') + '"><script>' + assets['flow-bootstrap.js'] + '</script></head>'
     # Rspamd's Bootstrap jQuery plugins register at DOMContentLoaded. Theme
     # scripts must not hold that event behind a slow network navigation asset.
-    body_surface = '<script async src="' + asset_url('flow-admin.js') + '"></script></body>'
+    body_surface = '<script async src="' + asset_url('flow-admin.js') + '"></script><script async src="' + asset_url('flow-help.js') + '"></script></body>'
     # The production Mailu auth handler permits this upstream only when the
     # current user is enabled and global_admin. The same fixed navigation is
     # therefore valid here; no account HTML is fetched/cached in the browser.

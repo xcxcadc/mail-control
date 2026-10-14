@@ -19,6 +19,7 @@ jobs:
       - run: python tools/build_ui.py
       - run: git diff --exit-code -- mail_control.py nginx/mail-control-admin.conf
       - run: python -m unittest -v test_mail_control.py
+      - run: python -m unittest -v test_mailu_domain_copy.py
       - run: bash -n install.sh
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium

@@ -1,0 +1,23 @@
+[Unit]
+Description=Mailu domain catch-all copy socketmap (read-only)
+After=docker.service
+
+[Service]
+Type=simple
+User=root
+Environment=MAIL_CONTROL_DB=/opt/mailu/data/data/main.db
+Environment=MAILU_COPY_SOCKET=/opt/mailu/data/overrides/postfix/mailu-domain-copy.sock
+Environment=RECIPIENT_DELIMITER=+
+ExecStart=/usr/bin/python3 /opt/mail-control/mailu_domain_copy.py
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/opt/mailu/data/data
+ReadWritePaths=/opt/mailu/data/overrides/postfix
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

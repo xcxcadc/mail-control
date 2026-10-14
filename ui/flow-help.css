@@ -1,0 +1,20 @@
+/* Inline, non-modal usage notes for the 秩序蓝白 theme. */
+.flow-help-card {
+  width:100%; max-width:100%; grid-column:1 / -1; margin:0 0 18px; padding:14px 18px;
+  border:1px solid #dbe4f4; border-left:3px solid #3c68cb; border-radius:6px;
+  background:#f7f9fe; color:#2d3544; box-sizing:border-box; overflow-wrap:anywhere;
+}
+.flow-help-card * { box-sizing:border-box; }
+.flow-help-title { margin:0 0 5px; color:#315bb7; font-size:15px; line-height:1.5; font-weight:650; }
+.flow-help-text, .flow-help-example { margin:3px 0 0; color:#596a83; font-size:13px; line-height:1.7; }
+.flow-help-example { color:#405574; }
+.flow-help-example strong { color:#315bb7; font-weight:600; }
+body.flow-tools > main > .flow-help-card { margin-bottom:16px; }
+body.flow-tools > main > .flow-help-card + .panel,
+body.flow-tools > main > .flow-help-card + .grid,
+body.flow-tools > main > .flow-help-card + .filters { margin-top:0; }
+@media (max-width:900px) {
+  .flow-help-card { margin-bottom:14px; padding:12px 14px; }
+  .flow-help-title { font-size:14px; }
+  .flow-help-text, .flow-help-example { font-size:12px; line-height:1.65; }
+}

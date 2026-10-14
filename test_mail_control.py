@@ -271,7 +271,9 @@ with tempfile.TemporaryDirectory() as bootstrap:
             start = config.index("location ^~ /admin/antispam/ {")
             rspamd = config[start:config.index("\n# Mailu native pages", start)]
             self.assertIn("auth_request /internal/auth/admin;", rspamd)
-            self.assertIn('sub_filter "<body>" "<body><style>', rspamd)
+            self.assertIn('sub_filter "<body>" "<body><aside', rspamd)
+            self.assertIn('flow-shell.css?v=', rspamd)
+            self.assertIn('flow-shell.js?v=', rspamd)
             self.assertIn('id=\\"mail-control-side-nav\\"', rspamd)
             self.assertIn('class=\\"flow-server-sidebar flow-sidebar-surface\\"', rspamd)
             self.assertIn('id=\\"mail-control-nav-toggle\\"', rspamd)
