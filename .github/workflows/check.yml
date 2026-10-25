@@ -20,6 +20,18 @@ jobs:
       - run: git diff --exit-code -- mail_control.py nginx/mail-control-admin.conf
       - run: python -m unittest -v test_mail_control.py
       - run: python -m unittest -v test_mailu_domain_copy.py
+      - name: Check attachment policies, storage safety, and password override
+        run: python -m unittest -v test_upload_policy test_storage_manager test_password_policy test_webmail_upload
+      - name: Check upload JavaScript and SnappyMail event integration
+        run: |
+          node --check ui/flow-upload.js
+          node --check webmail/mail-control-upload/upload.js
+          node webmail/test_upload.cjs
+      - name: Check SnappyMail PHP policy and plugin syntax
+        run: |
+          php -v
+          php -l webmail/mail-control-upload/index.php
+          php webmail/test_policy.php
       - run: bash -n install.sh
       - run: npm install --no-save playwright
       - run: npx playwright install --with-deps chromium

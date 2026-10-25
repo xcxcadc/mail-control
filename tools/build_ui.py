@@ -23,8 +23,11 @@ def replace_constant(source, name, value):
 
 def main():
     source = BASE.read_text(encoding='utf-8')
+    helpers = '\n'.join((ROOT / 'src' / name).read_text(encoding='utf-8') for name in ('upload_policy.py', 'storage_manager.py'))
+    source = source.replace('def verify_bcrypt_sha256(password, encoded):', helpers + '\n\ndef verify_bcrypt_sha256(password, encoded):', 1)
+    source = 'STORAGE_HTML = ' + repr((HERE / 'storage.html').read_text(encoding='utf-8')) + '\n' + source
     assets = {name: (HERE / name).read_text(encoding='utf-8') for name in
-              ('flow-tools.css', 'flow-tools.js', 'flow-admin.css', 'flow-admin.js', 'flow-sidebar.css', 'flow-surfaces.css', 'flow-surfaces.js', 'flow-bootstrap.js', 'flow-shell.css', 'flow-shell.js', 'flow-help.css', 'flow-help.js')}
+              ('flow-tools.css', 'flow-tools.js', 'flow-admin.css', 'flow-admin.js', 'flow-sidebar.css', 'flow-surfaces.css', 'flow-surfaces.js', 'flow-bootstrap.js', 'flow-shell.css', 'flow-shell.js', 'flow-help.css', 'flow-help.js', 'flow-upload.js')}
     for name, value in assets.items():
         if name.endswith('.js') and '</script' in value.lower():
             raise ValueError('Unsafe script delimiter in ' + name)
@@ -127,7 +130,7 @@ def main():
             elif parsed.path == "/navigation.js":
 ''', 1)
     source, html_hooks = re.subn(r'(body = html_bytes\([^\n]+query.get\("embedded", \["0"\]\)\[0\] == "1")\)', r'\1, username=flow_shell_identity(self.headers), request_path=parsed.path, request_query=parsed.query)', source)
-    if html_hooks != 8:
+    if html_hooks != 9:
         raise ValueError('Unexpected HTML response hooks: ' + str(html_hooks))
     compile(source, 'mail_control.flow.py', 'exec')
     # Compare all original functions and methods except the two deliberate UI hooks.
@@ -215,6 +218,9 @@ def main():
 
 # Existing SnappyMail upstream and authentication, with theme-only response filters.
 location ^~ /webmail/ {
+    client_max_body_size 128m;
+    client_body_timeout 300s;
+    proxy_read_timeout 300s;
     rewrite ^/webmail/(.*) /$1 break;
     include /etc/nginx/proxy.conf;
     auth_request /internal/auth/user;

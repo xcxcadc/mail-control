@@ -1,0 +1,7 @@
+.mc-upload-summary,.mc-upload-policy {font:12px/1.6 system-ui,sans-serif;color:#55718b;overflow-wrap:anywhere;margin:8px 0}
+.mc-upload-policy {padding:8px 12px;background:#f3f7ff;border:1px solid #dae6fa;border-radius:6px}
+.mc-upload-row {display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:5px;font-size:12px;color:#35618a}
+.mc-upload-row progress {width:min(180px,45%);height:7px;accent-color:#3478ed}
+.mc-upload-row .mc-upload-error {color:#b42318}
+#rl-app .attachmentAreaParent {max-height:45vh;overflow:auto}
+@media(max-width:600px){.mc-upload-row progress{width:100%;max-width:250px}.mc-upload-policy{margin:6px 0}}

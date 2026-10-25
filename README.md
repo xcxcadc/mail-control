@@ -15,6 +15,9 @@
 - 管理发件 API 密钥，支持单封和批量发信
 - 统一“秩序蓝白”界面，桌面邮件阅读区、手机居中弹窗及原生 Mailu/Rspamd/Webmail 页面协调显示
 - 功能页面顶部提供中文使用方法与示例；可选的[整域别名副本](docs/domain-copy.md)让已有和新建邮箱同时本地收件并转发到 `%` 通配别名目标
+- 可视化设置全站附件单文件、合计大小和数量，自定义发件与网页邮箱显示真实上传进度
+- 后台查看磁盘剩余容量、邮件与临时附件占用、最近上传记录，并分别确认清理临时文件或永久删除整封邮件
+- 按站点配置允许任意非空邮箱密码，保留确认密码、当前密码验证和安全哈希
 
 ## 部署
 
@@ -74,7 +77,7 @@ python deploy.py
 
 ## 功能入口
 
-全局管理员可以在 Mailu 侧边栏的“邮件工作台”中打开全局邮件查询、邮件控制、自定义发件、批量邮箱、邮件营销和发件 API。Rspamd 使用独立页面及同一组导航；不会用另一层管理页面弹窗包住这些功能。所有入口复用 Mailu 登录状态，接口继续校验权限。
+全局管理员可以在 Mailu 侧边栏的“邮件工作台”中打开全局邮件查询、邮件控制、自定义发件、附件与存储管理、批量邮箱、邮件营销和发件 API。Rspamd 使用独立页面及同一组导航；不会用另一层管理页面弹窗包住这些功能。所有入口复用 Mailu 登录状态，接口继续校验权限。
 
 蓝白样式在页面首帧应用，导航使用统一宽度和选中状态。桌面全局查询按左侧列表、右侧阅读区显示；手机邮件详情和其他弹窗适配视口并居中。邮件 HTML 在受限制的框架中载入，纯文本、内嵌图片和附件使用原有业务接口。
 
@@ -114,6 +117,7 @@ Mailu 原生登录和会话路由保持不变，桌面端和手机端继续使�
 - 邮件控制：`/admin/mail-control/`
 - 全局邮件查询：`/admin/mail-control/global/`
 - 自定义发件：`/admin/mail-control/custom-send/`
+- 附件与存储管理：`/admin/mail-control/storage/`
 - 批量邮箱：`/admin/mail-control/accounts/`
 - 邮件营销、模板、联系人和 API：`/admin/mail-control/marketing/`
 - 发件 API 管理：`/admin/mail-control/marketing/?tab=api`
@@ -122,11 +126,31 @@ Mailu 原生登录和会话路由保持不变，桌面端和手机端继续使�
 
 如果自动识别不适用于自定义部署，请使用 `--mailu-dir`、`--front-container`、`--bind`、`--mail-root`、`--db`、`--rspamd-dir`、`--dovecot-dir` 和 `--override-dir`，或设置对应的 `MAIL_CONTROL_*` 环境变量。
 
+## 附件、存储与密码策略
+
+附件与存储页面可调整单个附件大小、合计大小和最多数量；整封 MIME 邮件大小展示 SMTP 实际限制，只读。默认值为单个 12 MB、合计 24 MB、最多 12 个；附件设置可配置范围为 1–100。扩展与网页邮箱各保存一份有效策略，后台保存失败时回滚已替换文件，避免两端设置不一致。服务端继续读取实际附件字节并校验，不能依靠修改前端绕过。
+
+自定义发件和邮件控制区分“读取本地附件”“上传请求”“服务器处理中”。百分比来自 XHR 实际已传输字节，包含编码、正文等请求数据；100% 不表示收件人已经收到邮件。网页邮箱通过 SnappyMail 插件接入原有附件流程，显示实际上传与处理状态，安装方式及传输限制见 [网页邮箱附件策略](docs/webmail-upload.md)。
+
+存储列表每 5 秒刷新，邮件目录扫描在后台执行并保留可用快照。只扫描 Mailu 邮件目录、配置允许的临时上传目录和网页邮箱账户 `.files` 附件缓存。磁盘容量表示整块磁盘，来源统计只表示受管文件；邮件附件属于 MIME 邮件内容，不能当作独立临时文件删除。删除临时附件有至少 5 分钟保护期，并拒绝活跃文件；删除邮件由 Dovecot 处理并同时删除正文及全部附件。不会自动删除用户邮件。目录范围、受限扫描和安全清理见 [后台存储管理](docs/storage-management.md)。
+
+任意非空密码策略通过单独的 Mailu 原生校验补丁应用，批量建号使用相同非空要求；不修改密码哈希、确认密码、当前密码验证和登录权限。持久化挂载、幂等补丁、升级与回滚见 [邮箱密码策略](docs/password-policy.md)。扩展安装完成不等于原生密码补丁或网页邮箱插件已经应用；发布时须核对各自的实际配置。
+
+新增功能必须先在候选环境通过真实浏览器操作，再进行正式切换。自动化测试、模拟上传事件或接口成功均不能代替真实操作验收；本次结果填写在 [发布验收清单](docs/release-upload-checklist.md)。
+
 ## 测试
 
 ~~~powershell
-python -m unittest -v test_mail_control.py
+python tools/build_ui.py
+python -m unittest -v test_mail_control test_mailu_domain_copy test_upload_policy test_storage_manager test_password_policy test_webmail_upload
+node --check ui/flow-upload.js
+node --check webmail/mail-control-upload/upload.js
+node webmail/test_upload.cjs
+php -l webmail/mail-control-upload/index.php
+php webmail/test_policy.php
 ~~~
+
+部署产物一致性检查：`git diff --exit-code -- mail_control.py nginx/mail-control-admin.conf`。界面回归另执行 `node test_ui_performance.cjs`（需安装 Playwright Chromium）。该回归使用本地模拟接口；真实上传、删除、密码及网页邮箱操作按发布验收清单补充。
 
 界面和构建维护见 [docs/ui-maintenance.md](docs/ui-maintenance.md)。请修改 `src/mail_control.py` 和 `ui/` 后运行 `python tools/build_ui.py`，再验证生成结果；不要只修改根目录部署程序中的嵌入样式。
 

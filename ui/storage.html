@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>附件与存储管理</title>
+<style>
+:root{color-scheme:light;--ink:#2d3544;--muted:#77869b;--line:#e5eaf2;--accent:#3c68cb;--danger:#b84b53;--ok:#2e7d60}*{box-sizing:border-box}body{margin:0;background:#fff;color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}header{padding:20px 24px;border-bottom:1px solid var(--line)}header a{font-size:12px;color:var(--accent);text-decoration:none}h1{font-size:23px;margin:6px 0}header p{color:var(--muted);font-size:12px;margin:5px 0 0}main{max-width:1600px;margin:auto;padding:22px 24px 32px}.panel{border:1px solid var(--line);border-radius:6px;padding:18px;margin-bottom:18px}h2{font-size:16px;margin:0 0 14px}.storage-help{padding:15px 18px;border:1px solid #dce6fb;border-left:3px solid var(--accent);border-radius:5px;background:#f7f9fe;margin-bottom:18px;color:#60728d;font-size:12px}.storage-help strong{display:block;color:#355ba9;font-size:14px;margin-bottom:5px}.storage-help p{margin:5px 0}.storage-fields{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}label{display:block;color:#63728a;font-size:12px;margin-bottom:6px}input,select{width:100%;min-width:0;border:1px solid #dce2eb;border-radius:4px;padding:9px 10px;font:inherit;color:var(--ink);background:#fff}input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);margin:0;vertical-align:middle}button{border:1px solid transparent;border-radius:4px;background:var(--accent);color:#fff;padding:9px 13px;font:inherit;cursor:pointer;white-space:nowrap}button.secondary{color:#586b88;background:#f2f5fa;border-color:var(--line)}button.danger{color:var(--danger);background:#fff5f6;border-color:#efd5d8}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #3c68cb66;outline-offset:2px}.storage-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px}.muted{color:var(--muted);font-size:12px}.storage-status{font-size:12px;margin:10px 0;min-height:20px}.storage-status.error{color:var(--danger)}.storage-status.ok{color:var(--ok)}.storage-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}.storage-card{border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0}.storage-card b{display:block;font-size:23px;line-height:1.4;margin:6px 0}.storage-card p{margin:4px 0}.storage-card progress{width:100%;height:8px;accent-color:var(--accent)}.storage-card.warn progress{accent-color:var(--danger)}.storage-filter{display:grid;grid-template-columns:150px minmax(160px,1fr) minmax(180px,1.4fr) auto;gap:12px;align-items:end}.storage-table-wrap{overflow:auto;margin-top:15px;border-top:1px solid var(--line)}table{width:100%;border-collapse:collapse;text-align:left;font-size:12px}th,td{padding:12px 9px;border-bottom:1px solid var(--line);vertical-align:top}th{font-weight:600;color:#66758a;background:#fafbfe;white-space:nowrap}td:first-child{width:32px}.storage-name{max-width:450px;overflow-wrap:anywhere;font-weight:600}.storage-sub{color:var(--muted);margin-top:3px;overflow-wrap:anywhere}.storage-badge{display:inline-block;font-size:11px;padding:2px 7px;border-radius:3px;background:#edf2fc;color:#4264ab;white-space:nowrap}.storage-badge.temp{background:#ecf7f2;color:#3a7762}.storage-row-delete{font-size:12px;padding:5px 8px}details{margin-top:5px;color:#63748b}details summary{cursor:pointer}details p{margin:4px 0;font-weight:400}#inventory-empty{padding:30px;text-align:center;color:var(--muted)}.storage-pagination{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:14px}.storage-inline{display:flex;align-items:center;gap:8px;margin:0;font-size:12px}.storage-note{margin:10px 0 0;color:var(--muted);font-size:12px}.storage-count{color:var(--muted);font-size:12px;margin-right:auto}.storage-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:15px}.storage-spinner{display:inline-block;width:8px;height:8px;border-radius:50%;background:#3c68cb;margin-right:6px}.storage-message{color:#64748b;font-size:12px;overflow-wrap:anywhere}.storage-size,.storage-time{white-space:nowrap}.storage-path{font-family:ui-monospace,monospace;font-size:11px}.storage-error{padding:12px;border:1px solid #efd5d8;color:var(--danger);border-radius:4px;background:#fff8f9;margin:10px 0}.storage-stamp{margin-left:auto;color:var(--muted);font-size:12px}@media(max-width:1100px){.storage-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.storage-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.storage-filter{grid-template-columns:1fr 1fr}.storage-filter>button{justify-self:start}}@media(max-width:600px){header{padding:16px}main{padding:16px 12px}.panel{padding:14px}.storage-fields,.storage-cards,.storage-filter{grid-template-columns:1fr}.storage-pagination{justify-content:flex-start;flex-wrap:wrap}.storage-toolbar button{flex:1}.storage-stamp{width:100%;margin-left:0}.storage-name{max-width:260px}th,td{padding:10px 7px}h1{font-size:21px}}
+</style></head><body><header><a href="../">邮件工作台</a><h1>附件与存储管理</h1><p>统一附件限制 · 上传占用 · 邮件存储与清理</p></header><main>
+<section class="storage-help"><strong>使用方法：附件与存储管理</strong><p>调整限制后，自定义发件、发件 API 和网页邮箱使用同一策略。邮件正文与 MIME 编码也占用整封邮件大小，附件达到合计上限时仍需留出正文空间。</p><p><b>示例：</b>设置单个 20 MB、合计 30 MB、10 个附件；整封邮件上限展示邮件服务器实际限制，只读。以保存后的实际生效值为准。</p><p>邮件附件属于整封邮件；删除邮件会永久删除正文及全部附件。临时文件只清理配置范围内、超过保护期且未被使用的上传文件；正在上传和最近上传的文件会受保护。不进行自动清理。</p></section>
+<section class="panel"><h2>全站附件限制</h2><form id="storage-policy-form"><div class="storage-fields"><div><label for="policy-single">单个附件上限（MB）</label><input id="policy-single" name="single_mb" type="number" min="1" step="1" required></div><div><label for="policy-total">附件合计上限（MB）</label><input id="policy-total" name="total_mb" type="number" min="1" step="1" required></div><div><label for="policy-count">每封邮件最多附件数</label><input id="policy-count" name="max_count" type="number" min="1" step="1" required></div><div><label for="policy-message">整封邮件上限（MB，含编码）</label><input id="policy-message" name="message_mb" type="number" min="1" step="1" required></div></div><div class="storage-actions"><button id="save-policy" disabled>保存并应用</button><span id="policy-effective" class="muted">正在读取限制…</span></div><p id="policy-status" class="storage-status" aria-live="polite"></p></form></section>
+<div id="storage-cards" class="storage-cards" aria-live="polite"><div class="storage-card muted">正在读取存储状态…</div></div>
+<section class="panel"><h2>实时上传记录</h2><p class="storage-note">展示最近 100 条服务器接收记录；进度为实际请求字节（含编码及正文），每 5 秒随存储状态更新。上传完成后仍需等待邮件处理结果。</p><div class="storage-table-wrap"><table><thead><tr><th>来源</th><th>操作账户</th><th>文件</th><th>服务器接收进度</th><th>状态</th><th>更新时间</th></tr></thead><tbody id="upload-events"><tr><td colspan="6" class="muted">正在读取上传记录…</td></tr></tbody></table></div></section>
+<section class="panel"><h2>存储文件</h2><form id="storage-filter" class="storage-filter"><div><label for="storage-source">来源</label><select id="storage-source"><option value="all">全部来源</option><option value="mail">邮箱邮件</option><option value="temp">临时上传</option></select></div><div><label for="storage-mailbox">精确邮箱</label><input id="storage-mailbox" type="email" placeholder="support@example.com"></div><div><label for="storage-q">文件名、路径或邮箱</label><input id="storage-q" type="search" maxlength="255" placeholder="输入关键词"></div><button type="submit">筛选</button></form>
+<div class="storage-toolbar"><button id="storage-refresh" class="secondary" type="button">刷新扫描</button><button id="delete-temp" class="danger" type="button" disabled>删除选中临时文件</button><button id="delete-mail" class="danger" type="button" disabled>永久删除选中邮件</button><span id="storage-stamp" class="storage-stamp"></span></div>
+<p id="inventory-status" class="storage-status" aria-live="polite">正在连接…</p><div id="storage-error" class="storage-error" role="alert" hidden></div><div class="storage-table-wrap"><table><thead><tr><th><input id="storage-all" type="checkbox" aria-label="选择本页所有可删除项目"></th><th>来源</th><th>邮件 / 文件 / 附件</th><th>所属邮箱</th><th>占用</th><th>更新时间</th><th>操作</th></tr></thead><tbody id="storage-rows"></tbody></table><div id="inventory-empty" hidden>当前筛选条件下没有存储文件</div></div>
+<p id="storage-roots" class="storage-note"></p><div class="storage-pagination"><span id="storage-count" class="storage-count"></span><button id="storage-prev" class="secondary" type="button" disabled>上一页</button><button id="storage-next" class="secondary" type="button" disabled>下一页</button></div></section>
+</main><script>
+(function () {
+  'use strict';
+  var $ = function (selector) { return document.querySelector(selector); };
+  var state = {offset: 0, limit: 50, total: 0, items: [], selected: new Set(), timer: null, request: null, deleting: false, pending: false, force: false, revision: 0, stopped: false};
+  function escape(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return {'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]; }); }
+  function size(value) { value = Number(value) || 0; var units = ['B','KB','MB','GB','TB'], index = 0; while (value >= 1024 && index < units.length - 1) { value /= 1024; index++; } return value.toFixed(index ? 1 : 0) + ' ' + units[index]; }
+  function date(value) { if (!value) return '—'; var result = new Date(Number(value) * 1000); return Number.isFinite(result.getTime()) ? result.toLocaleString('zh-CN', {hour12: false}) : '—'; }
+  function status(id, message, good) { var node = $(id); node.textContent = message; node.className = 'storage-status' + (good === false ? ' error' : good === true ? ' ok' : ''); }
+  async function api(path, options) {
+    var response = await fetch('../api/' + path, Object.assign({credentials: 'same-origin', cache: 'no-store'}, options || {}));
+    var data; try { data = await response.json(); } catch (_) { throw Error('服务器响应异常，请确认登录状态（HTTP ' + response.status + '）'); }
+    if (!response.ok || data.error && !Array.isArray(data.items)) throw Error(data.error || '请求失败（HTTP ' + response.status + '）');
+    return data;
+  }
+  function applyPolicy(policy) {
+    ['single_mb','total_mb','max_count','message_mb'].forEach(function (name) { var node = $('#storage-policy-form [name=' + name + ']'); node.value = policy[name]; if (name === 'message_mb') { node.readOnly = true; node.removeAttribute('max'); node.title = '邮件服务器实际限制，只读'; } else if (name !== 'max_count' && policy.hard_max_mb) node.max = policy.hard_max_mb; });
+    $('#policy-effective').textContent = '当前生效：单个 ' + policy.single_mb + ' MB / 合计 ' + policy.total_mb + ' MB / ' + policy.max_count + ' 个 / 整封 ' + policy.message_mb + ' MB' + (policy.hard_max_mb ? '；可配置最大 ' + policy.hard_max_mb + ' MB' : '');
+    $('#save-policy').disabled = false;
+  }
+  api('uploads/policy').then(function (data) { applyPolicy(data.policy); }).catch(function (error) { status('#policy-status', error.message, false); });
+  $('#storage-policy-form').addEventListener('submit', async function (event) {
+    event.preventDefault(); var button = $('#save-policy'); if (button.disabled) return;
+    var data = {}; ['single_mb','total_mb','max_count'].forEach(function (name) { data[name] = Number($('#storage-policy-form [name=' + name + ']').value); });
+    if (data.single_mb > data.total_mb) { status('#policy-status', '单个附件上限不能大于附件合计上限', false); return; }
+    button.disabled = true; status('#policy-status', '正在保存并应用到发件服务与网页邮箱…');
+    try { var result = await api('uploads/policy', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data)}); applyPolicy(result.policy); status('#policy-status', '附件限制已保存并应用。新上传按当前生效值校验。', true); }
+    catch (error) { status('#policy-status', error.message, false); } finally { button.disabled = false; }
+  });
+  function key(item) { return JSON.stringify(item.source === 'mail' ? ['mail',item.mailbox,item.folder,item.id] : ['temp',item.root_id,item.path]); }
+  function canDelete(item) { return item.source === 'mail' || item.deletable === true && !!item.token; }
+  function selected(source) { return state.items.filter(function (item) { return item.source === source && state.selected.has(key(item)) && canDelete(item); }); }
+  function buttons() {
+    var temp = selected('temp').length, mail = selected('mail').length;
+    $('#delete-temp').disabled = !temp || state.deleting; $('#delete-temp').textContent = '删除选中临时文件' + (temp ? '（' + temp + '）' : '');
+    $('#delete-mail').disabled = !mail || state.deleting; $('#delete-mail').textContent = '永久删除选中邮件' + (mail ? '（' + mail + '）' : '');
+    var available = state.items.filter(canDelete), count = available.filter(function (item) { return state.selected.has(key(item)); }).length;
+    $('#storage-all').checked = available.length > 0 && count === available.length; $('#storage-all').indeterminate = count > 0 && count < available.length; $('#storage-all').disabled = state.deleting || !available.length;
+    $('#storage-prev').disabled = state.deleting || state.offset === 0; $('#storage-next').disabled = state.deleting || state.offset + state.limit >= state.total;
+    document.querySelectorAll('[data-storage-delete],[data-storage-check]').forEach(function (node) { node.disabled = state.deleting || node.dataset.protected === 'true'; });
+  }
+  function renderCards(summary) {
+    summary = summary || {}; var sources = summary.sources || {}, content = '';
+    (summary.disks || []).forEach(function (disk) { var percent = Math.min(100, Math.max(0, Number(disk.used_percent) || 0)); content += '<div class="storage-card' + (percent >= 90 ? ' warn' : '') + '"><span class="muted">' + (disk.source === 'mail' ? '邮局所在磁盘' : '上传目录所在磁盘') + ' · 剩余容量</span><b>' + size(disk.free) + '</b><progress max="100" value="' + percent + '" aria-label="磁盘已用 ' + percent + '%"></progress><p class="muted">已用 ' + percent + '% · 总容量 ' + size(disk.total) + '</p></div>'; });
+    ['mail','temp'].forEach(function (name) { var info = sources[name] || {}; content += '<div class="storage-card"><span class="muted">' + (name === 'mail' ? '邮件与内含附件' : '临时上传文件') + '</span><b>' + size(info.bytes) + '</b><p class="muted">' + (Number(info.files) || 0).toLocaleString() + ' ' + (name === 'mail' ? '封邮件（含所有文件夹）' : '个文件（含保护期内文件）') + '</p></div>'; });
+    $('#storage-cards').innerHTML = content;
+  }
+  function renderUploads(events) {
+    var labels = {uploading:'正在上传', uploaded:'上传完成，等待处理', processing:'服务器处理中', sent:'已提交邮件服务器', validated:'验证通过，未发信', completed:'处理完成', complete:'处理完成', success:'处理完成', failed:'失败', error:'失败', cancelled:'已取消', rejected:'请求被拒绝'};
+    var sources = {'/api/custom-send':'自定义发件', '/api/send':'邮件控制 / 发件 API', '/api/v1/send':'发件 API', 'custom-send':'自定义发件', custom:'自定义发件', api:'发件 API', send:'邮件控制', webmail:'网页邮箱'};
+    $('#upload-events').innerHTML = (Array.isArray(events) ? events : []).map(function (event) {
+      var total = Math.max(0, Number(event.total) || 0), received = Math.max(0, Number(event.received) || 0), percent = total ? Math.min(100, received / total * 100) : null;
+      var files = (event.files || []).map(function (file) { return '<div class="storage-sub">' + escape(file.name || file.filename || '(未命名文件)') + ' · ' + size(file.size) + '</div>'; }).join('');
+      var progress = '<div>' + size(received) + ' / ' + (total ? size(total) : '未知总量') + (percent == null ? '' : '（' + percent.toFixed(1) + '%）') + '</div><progress max="100"' + (percent == null ? '' : ' value="' + percent + '"') + ' style="width:150px;max-width:100%;height:7px;accent-color:#3c68cb" aria-label="服务器接收进度"></progress>';
+      return '<tr><td><span class="storage-badge">' + escape(sources[event.source] || event.source || '未知来源') + '</span></td><td class="storage-message">' + escape(event.actor || '—') + '</td><td class="storage-name">' + (files || '<span class="muted">' + (event.status === 'uploading' ? '接收完成后解析文件信息' : '无附件或未完成解析') + '</span>') + '</td><td>' + progress + '</td><td class="storage-message">' + escape(labels[event.status] || event.status || '未知') + (event.error ? '<div style="color:#b84b53">' + escape(event.error) + '</div>' : '') + '</td><td class="storage-time muted">' + date(event.updated_at) + '</td></tr>';
+    }).join('') || '<tr><td colspan="6" class="muted">暂无上传记录；后续新上传会显示在这里。</td></tr>';
+  }
+  function render(data) {
+    state.items = Array.isArray(data.items) ? data.items : []; state.total = Number(data.total) || 0;
+    var existing = new Set(state.items.filter(canDelete).map(key)); state.selected.forEach(function (value) { if (!existing.has(value)) state.selected.delete(value); });
+    renderCards(data.summary); renderUploads(data.uploads);
+    $('#storage-rows').innerHTML = state.items.map(function (item, index) {
+      var mail = item.source === 'mail', allowed = canDelete(item), title = mail ? item.subject || '(无主题)' : item.filename;
+      var details = '';
+      if (mail) {
+        var attachments = Array.isArray(item.attachments) ? item.attachments : [];
+        details = '<details><summary>附件信息（' + attachments.length + (item.attachment_state === 'partial' ? '+，扫描片段' : '') + '）</summary>' + attachments.map(function (file) { return '<p>' + escape(file.filename) + ' <span class="muted">' + escape(file.content_type || '') + (file.size == null ? '' : ' · ' + size(file.size)) + '</span></p>'; }).join('') + '<p class="muted">' + (item.attachment_state === 'partial' ? '大邮件仅解析有限元数据，附件列表可能不完整。' : item.attachment_state === 'unavailable' || item.attachment_state === 'changed' ? '元数据暂不可用，请刷新后重试。' : attachments.length ? '' : '未识别到附件。') + '占用列为整封邮件实际大小；附件不可与邮件分离清理。</p></details>';
+      }
+      return '<tr><td><input type="checkbox" data-storage-check="' + index + '" data-protected="' + !allowed + '" aria-label="选择 ' + escape(title) + '"' + (state.selected.has(key(item)) ? ' checked' : '') + (!allowed ? ' disabled' : '') + '></td><td><span class="storage-badge' + (mail ? '' : ' temp') + '">' + (mail ? '邮箱邮件' : '临时上传') + '</span></td><td><div class="storage-name">' + escape(title) + '</div>' + (mail ? '<div class="storage-sub">' + escape(item.from || '') + '</div>' : '') + '<div class="storage-sub storage-path">' + escape(item.path) + '</div>' + details + (!allowed ? '<div class="storage-sub">' + escape(item.delete_reason || '暂不可清理') + '</div>' : '') + '</td><td class="storage-message">' + escape(item.mailbox || '—') + (mail ? '<div class="storage-sub">' + escape(item.folder) + '</div>' : '') + '</td><td class="storage-size">' + size(item.size) + '</td><td class="storage-time muted">' + date(item.mtime) + '</td><td><button class="danger storage-row-delete" type="button" data-storage-delete="' + index + '" data-protected="' + !allowed + '"' + (!allowed ? ' disabled' : '') + '>' + (mail ? '删除整封邮件' : '删除文件') + '</button></td></tr>';
+    }).join('');
+    $('#inventory-empty').hidden = state.items.length > 0 || data.scanning && !data.updated_at;
+    $('#storage-error').hidden = !data.error; $('#storage-error').textContent = data.error || '';
+    $('#storage-stamp').textContent = '快照更新：' + date(data.updated_at);
+    $('#storage-count').textContent = '共 ' + state.total.toLocaleString() + ' 项' + (state.total ? ' · ' + (state.offset + 1) + '–' + Math.min(state.offset + state.limit, state.total) : '');
+    var roots = data.roots || []; $('#storage-roots').textContent = '每 5 秒刷新显示；目录扫描按服务器周期更新。' + (roots.length ? '临时上传范围：' + roots.map(function (root) { return root.label + (root.exists ? '' : '（目录未创建）'); }).join('、') + '。' : '未配置可清理的专用临时上传目录。') + (data.delete_min_age ? '最近上传保护期至少 ' + Math.ceil(data.delete_min_age / 60) + ' 分钟。' : '');
+    status('#inventory-status', data.error ? '扫描出现异常，当前保留最后一次可用快照。' : data.partial ? '扫描达到资源上限，当前统计为部分结果；请缩小范围或联系管理员。' : data.scanning ? '正在后台扫描，保留现有列表；完成后自动更新。' : '显示当前存储快照；新邮件和上传文件将在后续扫描中出现。', data.error ? false : undefined);
+    buttons();
+  }
+  function schedule() { clearTimeout(state.timer); if (!state.stopped && !document.hidden) state.timer = setTimeout(function () { load(false); }, 5000); }
+  async function load(force) {
+    if (state.stopped || document.hidden) return;
+    if (state.request || state.deleting) { state.pending = true; state.force = state.force || force; return; }
+    clearTimeout(state.timer); state.pending = false; state.force = false;
+    var controller = new AbortController(), revision = state.revision; state.request = controller;
+    var params = new URLSearchParams({source: $('#storage-source').value, mailbox: $('#storage-mailbox').value.trim(), q: $('#storage-q').value.trim(), offset: state.offset, limit: state.limit, attachments: '1'});
+    if (force) params.set('refresh', '1');
+    try { var data = await api('storage?' + params, {signal: controller.signal}); if (revision === state.revision && !state.stopped) render(data); }
+    catch (error) { if (error.name !== 'AbortError') status('#inventory-status', error.message + '；稍后自动重试。', false); }
+    finally { state.request = null; if (state.pending && !state.deleting) { var again = state.force; state.pending = false; load(again); } else schedule(); }
+  }
+  async function remove(items, source) {
+    if (state.deleting || !items.length) return;
+    var count = items.length, total = items.reduce(function (sum, item) { return sum + (Number(item.size) || 0); }, 0);
+    var prompt = source === 'mail' ? '将永久删除 ' + count + ' 封邮件及其全部附件（约 ' + size(total) + '）。此操作不可恢复，不是仅删除附件。确认继续？' : '将删除 ' + count + ' 个临时上传文件（约 ' + size(total) + '）。可能影响尚未发送的草稿附件。确认继续？';
+    if (!window.confirm(prompt)) return;
+    state.deleting = true; clearTimeout(state.timer); if (state.request) state.request.abort(); buttons();
+    status('#inventory-status', '正在' + (source === 'mail' ? '永久删除邮件及其附件' : '删除临时上传文件') + '…');
+    try {
+      var payload = source === 'mail' ? {messages: items.map(function (item) { return {mailbox:item.mailbox, id:item.id, folder:item.folder}; })} : {tokens: items.map(function (item) { return item.token; }), confirm: true};
+      var result = await api(source === 'mail' ? 'global/messages' : 'storage/temp', {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      items.forEach(function (item) { state.selected.delete(key(item)); });
+      var errors = result.errors || [];
+      if (errors.length) { $('#storage-error').hidden = false; $('#storage-error').textContent = '部分项目未删除：' + errors.map(function (item) { return typeof item === 'string' ? item : item.error || item.message || '文件可能仍在使用，请刷新'; }).join('；'); }
+      status('#inventory-status', errors.length ? '操作已完成，部分项目未删除。' : '删除操作已完成，正在刷新存储统计。', !errors.length);
+      state.offset = 0;
+    } catch (error) { status('#inventory-status', error.message, false); }
+    finally { state.deleting = false; buttons(); load(true); }
+  }
+  $('#storage-filter').addEventListener('submit', function (event) { event.preventDefault(); state.offset = 0; state.selected.clear(); state.revision++; load(false); });
+  $('#storage-refresh').onclick = function () { state.revision++; load(true); };
+  $('#storage-prev').onclick = function () { state.offset = Math.max(0, state.offset - state.limit); state.selected.clear(); state.revision++; load(false); };
+  $('#storage-next').onclick = function () { if (state.offset + state.limit < state.total) { state.offset += state.limit; state.selected.clear(); state.revision++; load(false); } };
+  $('#storage-all').onchange = function (event) { state.items.filter(canDelete).forEach(function (item) { if (event.target.checked) state.selected.add(key(item)); else state.selected.delete(key(item)); }); document.querySelectorAll('[data-storage-check]').forEach(function (node) { node.checked = state.selected.has(key(state.items[Number(node.dataset.storageCheck)])); }); buttons(); };
+  $('#storage-rows').addEventListener('change', function (event) { var node = event.target.closest('[data-storage-check]'); if (!node) return; var item = state.items[Number(node.dataset.storageCheck)]; if (!item || !canDelete(item)) return; if (node.checked) state.selected.add(key(item)); else state.selected.delete(key(item)); buttons(); });
+  $('#storage-rows').addEventListener('click', function (event) { var node = event.target.closest('[data-storage-delete]'); if (!node) return; var item = state.items[Number(node.dataset.storageDelete)]; if (item && canDelete(item)) remove([item], item.source); });
+  $('#delete-temp').onclick = function () { remove(selected('temp'), 'temp'); }; $('#delete-mail').onclick = function () { remove(selected('mail'), 'mail'); };
+  document.addEventListener('visibilitychange', function () { clearTimeout(state.timer); if (document.hidden) { if (state.request) state.request.abort(); } else load(false); });
+  window.addEventListener('pagehide', function () { state.stopped = true; clearTimeout(state.timer); if (state.request) state.request.abort(); });
+  window.addEventListener('pageshow', function (event) { if (event.persisted) { state.stopped = false; load(false); } });
+  load(false);
+})();
+</script></body></html>

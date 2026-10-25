@@ -41,7 +41,7 @@ EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 DOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$")
 MAX_BODY = 1024 * 1024
 MAX_PREVIEW = 1024 * 1024
-MAX_REQUEST = 32 * 1024 * 1024
+MAX_REQUEST = 300 * 1024 * 1024
 MAX_ATTACHMENT = 12 * 1024 * 1024
 MAX_ATTACHMENTS = 12
 MAX_TOTAL_ATTACHMENTS = 24 * 1024 * 1024
@@ -73,6 +73,7 @@ class Config:
 
 CONFIG = Config()
 WRITE_LOCK = threading.Lock()
+UPLOAD_SLOTS = threading.BoundedSemaphore(1)
 MARKETING_WRITE_LOCK = threading.Lock()
 CAMPAIGN_THREADS = {}
 CAMPAIGN_THREADS_LOCK = threading.Lock()
@@ -1513,8 +1514,9 @@ def decode_attachment(item, index):
         raw = base64.b64decode(data_value, validate=True)
     except (ValueError, TypeError, base64.binascii.Error) as exc:
         raise ValueError("附件 base64 数据无效") from exc
-    if not raw or len(raw) > MAX_ATTACHMENT:
-        raise ValueError(f"单个附件不能超过 {MAX_ATTACHMENT // 1024 // 1024} MB")
+    limit = upload_policy()["single_mb"] * 1024 * 1024
+    if len(raw) > limit:
+        raise ValueError(f"单个附件不能超过 {limit // 1024 // 1024} MB")
     content_type = content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     if "/" not in content_type:
         content_type = "application/octet-stream"
@@ -1535,15 +1537,16 @@ def decode_attachment(item, index):
 def parse_attachments(items):
     if items in (None, ""):
         return []
-    if not isinstance(items, list) or len(items) > MAX_ATTACHMENTS:
-        raise ValueError(f"附件数量不能超过 {MAX_ATTACHMENTS} 个")
+    policy = upload_policy()
+    if not isinstance(items, list) or len(items) > policy["max_count"]:
+        raise ValueError(f"附件数量不能超过 {policy['max_count']} 个")
     attachments = []
     total = 0
     for index, item in enumerate(items, 1):
         attachment = decode_attachment(item, index)
         total += len(attachment["data"])
-        if total > MAX_TOTAL_ATTACHMENTS:
-            raise ValueError(f"附件总大小不能超过 {MAX_TOTAL_ATTACHMENTS // 1024 // 1024} MB")
+        if total > policy["total_mb"] * 1024 * 1024:
+            raise ValueError(f"附件总大小不能超过 {policy['total_mb']} MB")
         attachments.append(attachment)
     return attachments
 
@@ -1712,8 +1715,8 @@ def create_batch_accounts(payload):
     localparts = parse_batch_localparts(payload.get("localparts"), domain)
     generate_password = bool(payload.get("generate_password"))
     common_password = str(payload.get("password") or "")
-    if not generate_password and len(common_password) < 8:
-        raise ValueError("统一密码至少需要 8 个字符，或选择自动生成密码")
+    if not generate_password and not common_password:
+        raise ValueError("请输入非空统一密码，或选择自动生成密码")
     change_pw_next_login = bool(payload.get("change_pw_next_login"))
     created = []
     skipped = []
@@ -2299,6 +2302,8 @@ def send_message(payload, allow_unlisted_sender=False):
             subtype=subtype,
             filename=attachment["filename"],
         )
+    if len(message.as_bytes()) > upload_policy()["message_mb"] * 1024 * 1024:
+        raise ValueError("编码后的邮件超过服务器邮件大小上限")
     all_recipients = recipients + cc + bcc
     if payload.get("dry_run", False):
         return {
@@ -2332,6 +2337,7 @@ NAVIGATION_JS = r"""(function () {
     {label: '邮件控制', path: '', icon: 'fa-envelope'},
     {label: '全局邮件查询', path: 'global/', icon: 'fa-search'},
     {label: '自定义发件', path: 'custom-send/', icon: 'fa-paper-plane'},
+    {label: '附件与存储', path: 'storage/', icon: 'fa-hdd'},
     {label: '批量邮箱', path: 'accounts/', icon: 'fa-users'},
     {label: '邮件营销', path: 'marketing/', icon: 'fa-bullhorn'},
     {label: '发件 API', path: 'marketing/?tab=api', icon: 'fa-code'}
@@ -2527,6 +2533,8 @@ def html_bytes(template, embedded=False):
         )
     template = template.replace("</head>", "<style>" + MESSAGE_VIEWER_CSS + "</style></head>", 1)
     template = template.replace("</head>", "<script>" + MESSAGE_VIEWER_JS + "</script></head>", 1)
+    if 'id="compose"' in template or 'id="send-form"' in template:
+        template = template.replace("</head>", '<script src="/admin/mail-control/ui/flow-upload.js"></script></head>', 1)
     if not embedded:
         template = template.replace(
             "</body>",
@@ -2538,16 +2546,17 @@ def html_bytes(template, embedded=False):
 
 CUSTOM_SEND_HTML = r"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>自定义发件</title><style>
 :root{--ink:#17212b;--muted:#637381;--line:#d9e1e8;--accent:#1677a8;--danger:#b42318}*{box-sizing:border-box}body{margin:0;background:#f5f7f9;color:var(--ink);font:14px system-ui,sans-serif}header{padding:18px 24px;background:#27333e;color:white}header a{color:#d8edf7;text-decoration:none}h1{font-size:20px;margin:10px 0 0}main{max-width:1100px;margin:24px auto;padding:0 16px}.panel{padding:20px;background:white;border:1px solid var(--line);border-radius:6px}.fields{display:grid;grid-template-columns:1fr 1fr;gap:14px}.wide{grid-column:1/-1}label{display:block;color:var(--muted);margin-bottom:6px}input,select,textarea{width:100%;padding:9px;border:1px solid #b9c7d2;border-radius:4px;font:inherit}textarea{resize:vertical;min-height:220px}button{padding:10px 16px;border:0;border-radius:4px;background:var(--accent);color:white;cursor:pointer}button.secondary{background:#64748b}button:disabled{opacity:.5;cursor:default}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:18px}.muted{color:var(--muted)}.error{color:var(--danger)}.ok{color:#087443}.sender{padding:12px;background:#edf6fa;border-radius:4px;overflow-wrap:anywhere;margin:14px 0}.result{white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;background:#f5f7f9;border-radius:4px;display:none}.result.visible{display:block}.hint{margin-top:6px;font-size:12px;color:var(--muted)}@media(max-width:600px){.fields{grid-template-columns:1fr}.wide{grid-column:auto}main{margin:12px auto;padding:0 10px}}
-</style></head><body><header><a href="../">← 邮件控制</a><h1>自定义发件</h1></header><main><section class="panel"><p class="muted">填写任意合法邮箱前缀，并选择本站已有域名，无需先创建该发件邮箱。</p><form id="compose"><div class="fields"><div><label for="prefix">发件邮箱前缀</label><input id="prefix" required maxlength="64" placeholder="例如 1、support、notice"></div><div><label for="domain">发件域名</label><select id="domain" required></select></div></div><div id="sender" class="sender">正在加载域名…</div><div class="fields"><div><label for="from-name">发件人显示名称</label><input id="from-name" maxlength="160" placeholder="可选"></div><div><label for="reply-to">回复地址</label><input id="reply-to" type="email" placeholder="可选：填写能收件的邮箱"><div class="hint">未创建的发件地址可能无法接收回复，可指定现有邮箱作为回复地址。</div></div><div class="wide"><label for="to">收件人</label><input id="to" placeholder="多个地址用逗号或分号分隔"></div><div><label for="cc">抄送</label><input id="cc" placeholder="可选"></div><div><label for="bcc">密送</label><input id="bcc" placeholder="可选"></div><div class="wide"><label for="subject">主题</label><input id="subject" maxlength="500"></div><div class="wide"><label for="format">正文格式</label><select id="format" style="width:auto"><option value="text">纯文本</option><option value="html">HTML</option></select></div><div class="wide"><label for="body">正文</label><textarea id="body" placeholder="填写邮件正文"></textarea></div><div class="wide"><label for="files">附件</label><input id="files" type="file" multiple><div id="file-summary" class="hint">最多 12 个附件，单个不超过 12 MB，总计不超过 24 MB。</div></div></div><div class="toolbar"><button id="send" type="submit" disabled>发送邮件</button><button id="preview" type="button" class="secondary" disabled>检查发送内容</button><button id="clear" type="button" class="secondary">清空内容</button></div></form><p id="status" class="muted" role="status">正在加载…</p><div id="result" class="result"></div></section></main><script>
+</style></head><body><header><a href="../">← 邮件控制</a><h1>自定义发件</h1></header><main><section class="panel"><p class="muted">填写任意合法邮箱前缀，并选择本站已有域名，无需先创建该发件邮箱。</p><form id="compose"><div class="fields"><div><label for="prefix">发件邮箱前缀</label><input id="prefix" required maxlength="64" placeholder="例如 1、support、notice"></div><div><label for="domain">发件域名</label><select id="domain" required></select></div></div><div id="sender" class="sender">正在加载域名…</div><div class="fields"><div><label for="from-name">发件人显示名称</label><input id="from-name" maxlength="160" placeholder="可选"></div><div><label for="reply-to">回复地址</label><input id="reply-to" type="email" placeholder="可选：填写能收件的邮箱"><div class="hint">未创建的发件地址可能无法接收回复，可指定现有邮箱作为回复地址。</div></div><div class="wide"><label for="to">收件人</label><input id="to" placeholder="多个地址用逗号或分号分隔"></div><div><label for="cc">抄送</label><input id="cc" placeholder="可选"></div><div><label for="bcc">密送</label><input id="bcc" placeholder="可选"></div><div class="wide"><label for="subject">主题</label><input id="subject" maxlength="500"></div><div class="wide"><label for="format">正文格式</label><select id="format" style="width:auto"><option value="text">纯文本</option><option value="html">HTML</option></select></div><div class="wide"><label for="body">正文</label><textarea id="body" placeholder="填写邮件正文"></textarea></div><div class="wide"><label for="files">附件</label><input id="files" type="file" multiple><div id="file-summary" class="hint">正在读取全站附件限制…</div></div></div><div class="toolbar"><button id="send" type="submit" disabled>发送邮件</button><button id="preview" type="button" class="secondary" disabled>检查发送内容</button><button id="clear" type="button" class="secondary">清空内容</button></div></form><p id="status" class="muted" role="status">正在加载…</p><div id="result" class="result"></div></section></main><script>
 const $=s=>document.querySelector(s),base=location.pathname.endsWith('/')?'../':'./';let busy=false,ready=false;
 async function api(path,options){const r=await fetch(base+'api/'+path,options);const j=await r.json().catch(()=>({error:r.statusText}));if(!r.ok)throw Error(j.error||r.statusText);return j}
 function status(s,type='muted'){$('#status').textContent=s;$('#status').className=type}
 function updateSender(){$('#sender').textContent=($('#prefix').value.trim()||'前缀')+'@'+($('#domain').value||'域名')}
 function busyState(value){busy=value;$('#send').disabled=value||!ready;$('#preview').disabled=value||!ready;$('#clear').disabled=value;document.querySelectorAll('#compose input,#compose select,#compose textarea').forEach(x=>x.disabled=value)}
-function attachment(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(Error('附件读取失败：'+file.name));reader.onload=()=>resolve({filename:file.name,content_type:file.type||'application/octet-stream',data_base64:String(reader.result).split(',')[1]});reader.readAsDataURL(file)})}
-async function payload(dryRun){const prefix=$('#prefix').value.trim(),domain=$('#domain').value;if(!prefix||!domain)throw Error('请填写邮箱前缀并选择域名');if(![$('#to').value,$('#cc').value,$('#bcc').value].some(x=>x.trim()))throw Error('请至少填写一个收件人、抄送人或密送人');const files=[...$('#files').files];if(files.length>12||files.some(f=>f.size>12*1024*1024)||files.reduce((sum,f)=>sum+f.size,0)>24*1024*1024)throw Error('附件超过数量或大小限制');return {prefix,domain,from_name:$('#from-name').value,reply_to:$('#reply-to').value,to:$('#to').value,cc:$('#cc').value,bcc:$('#bcc').value,subject:$('#subject').value,[$('#format').value]:$('#body').value,dry_run:dryRun,attachments:await Promise.all(files.map(attachment))}}
-async function submit(dryRun){if(busy)return;try{const data=await payload(dryRun);busyState(true);status(dryRun?'正在检查…':'正在提交邮件…');const j=await api('custom-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});status(dryRun?'内容检查通过，尚未发送。':'邮件已提交到邮件服务器。','ok');$('#result').classList.add('visible');$('#result').textContent=[`发件人：${j.from}`,`收件人：${j.to.join('、')||'无'}`,`抄送：${j.cc.join('、')||'无'}`,`密送：${j.bcc.join('、')||'无'}`,`主题：${j.subject||'(无主题)'}`,dryRun?`附件：${j.attachments.length} 个`:`附件：${j.attachments} 个`,j.message_id?'邮件编号：'+j.message_id:''].filter(Boolean).join('\n')}catch(e){status(e.message,'error')}finally{busyState(false)}}
-$('#compose').onsubmit=e=>{e.preventDefault();submit(false)};$('#preview').onclick=()=>submit(true);$('#prefix').oninput=updateSender;$('#domain').onchange=updateSender;$('#files').onchange=()=>{$('#file-summary').textContent=[...$('#files').files].map(f=>`${f.name} (${Math.ceil(f.size/1024)} KB)`).join('、')||'未选择附件'};$('#clear').onclick=()=>{const domain=$('#domain').value;$('#compose').reset();$('#domain').value=domain;$('#result').classList.remove('visible');$('#file-summary').textContent='最多 12 个附件，单个不超过 12 MB，总计不超过 24 MB。';updateSender();status('内容已清空')};
+function attachment(file,report){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(Error('附件读取失败：'+file.name));reader.onprogress=e=>report(e.loaded);reader.onload=()=>{report(file.size);resolve({filename:file.name,content_type:file.type||'application/octet-stream',data_base64:String(reader.result).split(',')[1]})};reader.readAsDataURL(file)})}
+async function payload(dryRun){const prefix=$('#prefix').value.trim(),domain=$('#domain').value;if(!prefix||!domain)throw Error('请填写邮箱前缀并选择域名');if(![$('#to').value,$('#cc').value,$('#bcc').value].some(x=>x.trim()))throw Error('请至少填写一个收件人、抄送人或密送人');const files=[...$('#files').files];await MailUpload.ready;const limits=MailUpload.validate(files),loaded=files.map(()=>0);if(files.length)MailUpload.reading(0,limits.bytes);return {prefix,domain,from_name:$('#from-name').value,reply_to:$('#reply-to').value,to:$('#to').value,cc:$('#cc').value,bcc:$('#bcc').value,subject:$('#subject').value,[$('#format').value]:$('#body').value,dry_run:dryRun,attachments:await Promise.all(files.map((file,index)=>attachment(file,n=>{loaded[index]=n;MailUpload.reading(loaded.reduce((sum,value)=>sum+value,0),limits.bytes)})))}}
+async function submit(dryRun){if(busy)return;busyState(true);status('正在准备邮件与本地附件…');try{const data=await payload(dryRun);status(dryRun?'正在上传并检查…':'正在上传邮件…');const j=await MailUpload.send(base+'api/custom-send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});status(dryRun?'内容检查通过，尚未发送。':'邮件已提交到邮件服务器。','ok');$('#result').classList.add('visible');$('#result').textContent=[`发件人：${j.from}`,`收件人：${j.to.join('、')||'无'}`,`抄送：${j.cc.join('、')||'无'}`,`密送：${j.bcc.join('、')||'无'}`,`主题：${j.subject||'(无主题)'}`,dryRun?`附件：${j.attachments.length} 个`:`附件：${j.attachments} 个`,j.message_id?'邮件编号：'+j.message_id:''].filter(Boolean).join('\n')}catch(e){status(e.message,'error')}finally{busyState(false)}}
+$('#compose').onsubmit=e=>{e.preventDefault();submit(false)};$('#preview').onclick=()=>submit(true);$('#prefix').oninput=updateSender;$('#domain').onchange=updateSender;$('#files').onchange=()=>{$('#file-summary').textContent=[...$('#files').files].map(f=>`${f.name} (${Math.ceil(f.size/1024)} KB)`).join('、')||'未选择附件'};$('#clear').onclick=()=>{const domain=$('#domain').value;$('#compose').reset();$('#domain').value=domain;$('#result').classList.remove('visible');$('#file-summary').textContent=MailUpload.hint();MailUpload.reset();updateSender();status('内容已清空')};
+MailUpload.ready.then(()=>{$('#file-summary').textContent=MailUpload.hint()}).catch(e=>status(e.message,'error'));
 api('domains').then(j=>{$('#domain').replaceChildren(...j.domains.map(d=>new Option(d.name,d.name)));ready=j.domains.length>0;updateSender();busyState(false);status(ready?'可以发送':'本站尚未配置发件域名',ready?'muted':'error')}).catch(e=>status(e.message,'error'));
 </script></body></html>
 """
@@ -2605,7 +2614,7 @@ const $=s=>document.querySelector(s); const esc=s=>String(s??'').replace(/[&<>"'
 async function api(path, options){const r=await fetch(path,options);const j=await r.json().catch(()=>({error:r.statusText}));if(!r.ok)throw Error(j.error||r.statusText);return j}
 function setStatus(s,good=true){$('#status').textContent=s;$('#status').className='status '+(good?'ok':'error')}
 async function loadLists(){const j=await api('api/lists');for(const [id,key] of [['black-list','blacklist'],['white-list','whitelist']]){$('#'+id).innerHTML=j[key].map(x=>`<div class="entry"><span>${esc(x)}</span><button class="small danger" data-list="${key}" data-entry="${esc(x)}">删除</button></div>`).join('')||'<span class="status">暂无</span>'}}
-let offset=0; const pageSize=50; let uploaded=[];
+let offset=0; const pageSize=50; let uploaded=[],readingAttachments=false,sendBusy=false;
 async function loadMailboxes(){const j=await api('api/mailboxes');for(const id of ['mailbox','from']){$('#'+id).innerHTML=j.mailboxes.map(x=>`<option>${esc(x)}</option>`).join('')};await loadMessages(true)}
 function loadFolders(){ $('#folder').innerHTML='<option value="ALL">全部文件夹</option>';return Promise.resolve() }
 let messageListRequest=0,messageDetailRequest=0;
@@ -2626,12 +2635,12 @@ function insertImageUrl(){const input=$('#image-url');const url=input.value.trim
 document.querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>{const editor=$('#send-editor');editor.focus();document.execCommand(b.dataset.cmd,false,null)});$('#add-image-url').onclick=insertImageUrl;$('#insert-image-url').onclick=()=>$('#image-url').focus();$('#insert-link').onclick=()=>{const url=prompt('请输入链接地址');if(url&&/^https?:\/\//i.test(url))document.execCommand('createLink',false,url)};
 function renderFiles(){$('#file-list').innerHTML=uploaded.length?uploaded.map((x,i)=>`<div>${esc(x.filename)} (${Math.ceil(x.size/1024)} KB) <button type="button" class="small danger" data-file-index="${i}">移除</button></div>`).join(''):'尚未选择附件'}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-file-index]');if(b){uploaded.splice(Number(b.dataset.fileIndex),1);renderFiles()}});
-function readFile(file){return new Promise((resolve,reject)=>{if(file.size>12*1024*1024){reject(Error(file.name+' 超过 12 MB'));return}const reader=new FileReader();reader.onerror=()=>reject(Error('读取 '+file.name+' 失败'));reader.onload=()=>{const dataUrl=String(reader.result);resolve({filename:file.name,content_type:file.type||'application/octet-stream',size:file.size,data_url:dataUrl,data_base64:dataUrl.split(',')[1]||'',inline:file.type.startsWith('image/')})};reader.readAsDataURL(file)})}
-$('#attachments').onchange=async e=>{try{const items=await Promise.all([...e.target.files].map(readFile));uploaded.push(...items);for(const item of items)if(item.inline)insertEditorHtml(`<img src="${item.data_url}" alt="${esc(item.filename)}" style="max-width:100%">`);renderFiles();e.target.value=''}catch(x){setStatus(x.message,false)}};
+function readFile(file,report){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(Error('读取 '+file.name+' 失败'));reader.onprogress=e=>report(e.loaded);reader.onload=()=>{report(file.size);const dataUrl=String(reader.result);resolve({filename:file.name,content_type:file.type||'application/octet-stream',size:file.size,data_url:dataUrl,data_base64:dataUrl.split(',')[1]||'',inline:file.type.startsWith('image/')})};reader.readAsDataURL(file)})}
+$('#attachments').onchange=async e=>{if(readingAttachments||sendBusy)return;const input=e.target,files=[...input.files];readingAttachments=true;input.disabled=true;$('#dry-run').disabled=true;$('#send-submit').disabled=true;try{await MailUpload.ready;MailUpload.validate([...uploaded,...files]);const total=files.reduce((sum,file)=>sum+file.size,0),loaded=files.map(()=>0);MailUpload.reading(0,total);const items=await Promise.all(files.map((file,index)=>readFile(file,n=>{loaded[index]=n;MailUpload.reading(loaded.reduce((sum,value)=>sum+value,0),total)})));uploaded.push(...items);for(const item of items)if(item.inline)insertEditorHtml(`<img src="${item.data_url}" alt="${esc(item.filename)}" style="max-width:100%">`);renderFiles();MailUpload.reset();setSendStatus('附件已读取，待提交后开始上传')}catch(x){setSendStatus(x.message,false);setStatus(x.message,false)}finally{readingAttachments=false;input.value='';input.disabled=false;$('#dry-run').disabled=false;$('#send-submit').disabled=false}};
 function buildPayload(dry){let htmlBody=$('#send-editor').innerHTML.trim();const attachments=uploaded.map((x,i)=>({...x,content_id:x.inline?'mail-control-'+Date.now()+'-'+i:''}));for(const item of attachments)if(item.inline&&item.data_url)htmlBody=htmlBody.split(item.data_url).join('cid:'+item.content_id);return {from:$('#from').value,to:$('#to').value,cc:$('#cc').value,bcc:$('#bcc').value,subject:$('#send-subject').value,text:$('#send-editor').innerText.trim(),html:htmlBody,attachments:attachments.map(x=>({filename:x.filename,content_type:x.content_type,data_url:x.data_url,data_base64:x.data_base64,content_id:x.content_id,inline:x.inline})),dry_run:dry}}
 function setSendStatus(message,good=true){$('#send-status').textContent=message;$('#send-status').className='status '+(good?'ok':'error')}
-function setSendBusy(busy){$('#dry-run').disabled=busy;$('#send-submit').disabled=busy;$('#dry-run').textContent=busy?'处理中...':'验证';$('#send-submit').textContent=busy?'发送中...':'发送'}
-async function send(dry){setSendBusy(true);setSendStatus(dry?'正在验证请求...':'正在提交邮件，请稍候...');try{const j=await api('api/send',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(buildPayload(dry))});const count=Number(j.attachments||0);const message=dry?'验证通过，未发信':`邮件已提交，邮件服务器已接收${count?`，含 ${count} 个附件`:''}`;setSendStatus(message);setStatus(message);return j}catch(x){setSendStatus(x.message,false);setStatus(x.message,false);throw x}finally{setSendBusy(false)}}
+function setSendBusy(busy){sendBusy=busy;$('#attachments').disabled=busy;$('#dry-run').disabled=busy;$('#send-submit').disabled=busy;$('#dry-run').textContent=busy?'处理中...':'验证';$('#send-submit').textContent=busy?'发送中...':'发送'}
+async function send(dry){if(sendBusy||readingAttachments)return;setSendBusy(true);setSendStatus(dry?'正在上传并验证请求...':'正在上传邮件，请稍候...');try{await MailUpload.ready;MailUpload.validate(uploaded);const j=await MailUpload.send('api/send',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(buildPayload(dry))});const count=Number(j.attachments||0);const message=dry?'验证通过，未发信':`邮件已提交，邮件服务器已接收${count?`，含 ${count} 个附件`:''}`;setSendStatus(message);setStatus(message);return j}catch(x){setSendStatus(x.message,false);setStatus(x.message,false);throw x}finally{setSendBusy(false)}}
 $('#dry-run').onclick=()=>send(true).catch(()=>{});$('#send-form').onsubmit=e=>{e.preventDefault();send(false).catch(()=>{})};
 Promise.all([loadLists(),loadMailboxes()]).then(()=>setStatus('已连接')).catch(x=>setStatus(x.message,false));
 </script></body></html>"""
@@ -2661,7 +2670,7 @@ ACCOUNTS_HTML = r"""<!doctype html>
 <title>批量邮箱管理</title>
 <style>
 :root{color-scheme:light;--ink:#17212b;--muted:#637381;--line:#d9e1e8;--accent:#1677a8;--danger:#b42318;--bg:#f5f7f9;--ok:#087443}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px system-ui,-apple-system,"Segoe UI",sans-serif}header{background:#27333e;color:#fff;padding:18px 24px}header h1{font-size:20px;margin:0 0 4px}header p{margin:0;color:#c8d2db}header a{color:#d8edf7;text-decoration:none;display:inline-block;margin-bottom:10px}main{max-width:1180px;margin:24px auto;padding:0 16px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.panel{background:#fff;border:1px solid var(--line);border-radius:6px;padding:18px}.wide{grid-column:1/-1}.panel h2{font-size:16px;margin:0 0 14px}label{display:block;color:var(--muted);margin:10px 0 6px}input,select,textarea{width:100%;border:1px solid #b9c7d2;border-radius:4px;padding:9px;font:inherit;background:#fff}textarea{resize:vertical;min-height:160px}.check{display:flex;align-items:center;gap:8px}.check input{width:auto}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}button{border:0;border-radius:4px;padding:9px 14px;background:var(--accent);color:#fff;cursor:pointer;margin-top:12px}button.secondary{background:#64748b}button.danger{background:var(--danger)}button:disabled{opacity:.55;cursor:not-allowed}.status{color:var(--muted);margin:8px 0}.ok{color:var(--ok)}.error{color:var(--danger)}.summary{padding:10px;background:#f1f4f6;border:1px solid var(--line);border-radius:4px;margin-top:10px}.result{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{text-align:left;border-bottom:1px solid var(--line);padding:8px;vertical-align:top}th{color:var(--muted);font-weight:600}.email{overflow-wrap:anywhere}.password{font-family:ui-monospace,monospace;word-break:break-all}.protected{color:var(--muted)}@media(max-width:760px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}main{margin:12px auto;padding:0 10px}th,td{padding:6px 4px;font-size:12px}}
-</style></head><body><header><a href="../">← 返回邮件控制</a><h1>批量邮箱管理</h1><p>按域名批量创建、查看和删除邮箱账户</p></header><main><p id="status" class="status">正在加载...</p><section class="panel"><h2>选择域名</h2><select id="domain"></select><div id="domain-summary" class="summary"></div></section><div class="grid"><section class="panel"><h2>批量新增</h2><label>邮箱前缀</label><textarea id="localparts" placeholder="每行一个，也支持完整邮箱地址&#10;例如：&#10;user01&#10;user02&#10;team@665321.xyz"></textarea><label>初始密码</label><input id="password" type="password" autocomplete="new-password" placeholder="统一密码至少 8 个字符"><label class="check"><input id="generate-password" type="checkbox">为每个邮箱自动生成随机密码</label><label class="check"><input id="change-password" type="checkbox">首次登录强制修改密码</label><label>单邮箱配额（GB，可留空使用默认值）</label><input id="quota" type="number" min="0.1" step="0.1" placeholder="默认 1 GB"><button id="create" type="button">批量创建</button><div id="create-result" class="result"></div></section><section class="panel"><h2>删除邮箱</h2><p class="status">全局管理员账号不可批量删除。勾选后删除会同时清理对应邮箱数据目录。</p><div class="toolbar"><button id="select-all" type="button" class="secondary small">全选可删除邮箱</button><button id="clear-all" type="button" class="secondary small">清空选择</button><button id="delete" type="button" class="danger">删除选中邮箱</button></div><div id="account-list"></div></section></div></main><script>
+</style></head><body><header><a href="../">← 返回邮件控制</a><h1>批量邮箱管理</h1><p>按域名批量创建、查看和删除邮箱账户</p></header><main><p id="status" class="status">正在加载...</p><section class="panel"><h2>选择域名</h2><select id="domain"></select><div id="domain-summary" class="summary"></div></section><div class="grid"><section class="panel"><h2>批量新增</h2><label>邮箱前缀</label><textarea id="localparts" placeholder="每行一个，也支持完整邮箱地址&#10;例如：&#10;user01&#10;user02&#10;team@665321.xyz"></textarea><label>初始密码</label><input id="password" type="password" autocomplete="new-password" placeholder="可设置任意非空密码"><label class="check"><input id="generate-password" type="checkbox">为每个邮箱自动生成随机密码</label><label class="check"><input id="change-password" type="checkbox">首次登录强制修改密码</label><label>单邮箱配额（GB，可留空使用默认值）</label><input id="quota" type="number" min="0.1" step="0.1" placeholder="默认 1 GB"><button id="create" type="button">批量创建</button><div id="create-result" class="result"></div></section><section class="panel"><h2>删除邮箱</h2><p class="status">全局管理员账号不可批量删除。勾选后删除会同时清理对应邮箱数据目录。</p><div class="toolbar"><button id="select-all" type="button" class="secondary small">全选可删除邮箱</button><button id="clear-all" type="button" class="secondary small">清空选择</button><button id="delete" type="button" class="danger">删除选中邮箱</button></div><div id="account-list"></div></section></div></main><script>
 const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const apiRoot='../';let domains=[];
 async function api(path,options){const r=await fetch(apiRoot+path,options);const j=await r.json().catch(()=>({error:r.statusText}));if(!r.ok)throw Error(j.error||r.statusText);return j}
 function status(message,good=true){$('#status').textContent=message;$('#status').className='status '+(good?'ok':'error')}
@@ -2913,7 +2922,17 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         if length <= 0 or length > MAX_REQUEST:
             raise ValueError("请求体无效或过大")
-        return self.rfile.read(length)
+        upload_id = getattr(self, "upload_event_id", None)
+        chunks, received = [], 0
+        while received < length:
+            chunk = self.rfile.read(min(256 * 1024, length - received))
+            if not chunk:
+                raise ValueError("上传连接已中断，请重新上传")
+            chunks.append(chunk)
+            received += len(chunk)
+            if upload_id:
+                upload_request_progress(upload_id, received)
+        return b"".join(chunks)
 
     def read_payload(self):
         content_type = self.headers.get("Content-Type", "application/json")
@@ -2974,6 +2993,16 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path in {"/custom-send", "/custom-send/"}:
                 body = html_bytes(CUSTOM_SEND_HTML, query.get("embedded", ["0"])[0] == "1")
                 self.send_content(body, "text/html; charset=utf-8", csp="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'")
+            elif parsed.path in {"/storage", "/storage/"}:
+                body = html_bytes(STORAGE_HTML, query.get("embedded", ["0"])[0] == "1")
+                self.send_content(body, "text/html; charset=utf-8", csp="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
+            elif parsed.path == "/api/uploads/policy":
+                self.send_json({"policy": upload_policy()})
+            elif parsed.path == "/api/storage":
+                result = storage_snapshot(query)
+                result["uploads"] = sorted(upload_request_snapshot() + storage_webmail_upload_events(),
+                                           key=lambda event: event.get("updated_at", 0), reverse=True)[:100]
+                self.send_json(result)
             elif parsed.path in {"/global", "/global/"}:
                 body = html_bytes(GLOBAL_HTML, query.get("embedded", ["0"])[0] == "1")
                 self.send_content(body, "text/html; charset=utf-8", csp="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'self' data: blob:")
@@ -3103,9 +3132,32 @@ class Handler(BaseHTTPRequestHandler):
                 return
         elif not self.require_auth():
             return
+        self.upload_event_id = None
+        upload_slot = parsed.path in {"/api/custom-send", "/api/send", "/api/v1/send", "/api/v1/batch-send"}
+        if upload_slot and not UPLOAD_SLOTS.acquire(blocking=False):
+            self.send_json({"error": "当前有附件正在处理，请稍后重试"}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
         try:
+            if parsed.path in {"/api/custom-send", "/api/send", "/api/v1/send", "/api/v1/batch-send"}:
+                actor = self.headers.get("X-Remote-User", "")
+                self.upload_event_id = upload_request_start(parsed.path, actor, int(self.headers.get("Content-Length", "0")))
             payload = self.read_payload()
-            if api_endpoint:
+            if not isinstance(payload, dict):
+                raise ValueError("请求必须为 JSON 对象")
+            if self.upload_event_id:
+                files = []
+                attachments = payload.get("attachments", [])
+                if not isinstance(attachments, list):
+                    raise ValueError("attachments 必须为数组")
+                for attachment in attachments:
+                    if isinstance(attachment, dict):
+                        encoded = str(attachment.get("data_base64") or attachment.get("data_url") or "").split(",", 1)[-1]
+                        size = max(0, len(encoded) // 4 * 3 - (len(encoded) - len(encoded.rstrip("="))))
+                        files.append({"name": str(attachment.get("filename", ""))[:255], "size": size})
+                upload_request_finish(self.upload_event_id, "processing", files=files)
+            if parsed.path == "/api/uploads/policy":
+                self.send_json({"policy": save_upload_policy(payload)})
+            elif api_endpoint:
                 api_value = self.headers.get("X-API-Key", "") or self.headers.get("Authorization", "")
                 api_key = find_marketing_api_key(api_value)
                 if not api_key:
@@ -3156,7 +3208,15 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
         except (ValueError, OSError, sqlite3.Error, smtplib.SMTPException, json.JSONDecodeError) as exc:
+            if self.upload_event_id:
+                upload_request_finish(self.upload_event_id, "failed", error=str(exc))
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        else:
+            if self.upload_event_id:
+                upload_request_finish(self.upload_event_id, "validated" if payload.get("dry_run") else "sent")
+        finally:
+            if upload_slot:
+                UPLOAD_SLOTS.release()
 
     def do_DELETE(self):
         if not self.require_auth():
@@ -3164,6 +3224,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             payload = self.read_payload() if int(self.headers.get("Content-Length", "0")) > 0 else {}
             parsed = urllib.parse.urlparse(self.path)
+            if parsed.path == "/api/storage/temp":
+                self.send_json(delete_storage_temp(payload), HTTPStatus.OK)
+                return
             if parsed.path == "/api/global/messages":
                 self.send_json(delete_global_messages(payload), HTTPStatus.OK)
                 return

@@ -47,6 +47,7 @@ def flow_shell_markup(username, request_path='', request_query=''):
             ('全局邮件查询', root + 'global/', 'fa-search'),
             ('邮件控制', root, 'fa-envelope'),
             ('自定义发件', root + 'custom-send/', 'fa-paper-plane'),
+            ('附件与存储', root + 'storage/', 'fa-hdd'),
             ('批量邮箱', root + 'accounts/', 'fa-users'),
             ('邮件营销', root + 'marketing/', 'fa-bullhorn'),
             ('发件 API', root + 'marketing/?tab=api', 'fa-code'),

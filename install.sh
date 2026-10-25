@@ -466,8 +466,11 @@ location ^~ /mail-control/ {
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-Prefix /mail-control;
-    proxy_read_timeout 60s;
-    client_max_body_size 32m;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_request_buffering off;
+    client_body_timeout 300s;
+    client_max_body_size 300m;
 }
 
 location = /admin/mail-control {
@@ -493,8 +496,11 @@ location ^~ /admin/mail-control/ {
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
     proxy_set_header X-Forwarded-Prefix /admin/mail-control;
-    proxy_read_timeout 60s;
-    client_max_body_size 32m;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+    proxy_request_buffering off;
+    client_body_timeout 300s;
+    client_max_body_size 300m;
 }
 EOF
 sed -i "s/__MAIL_CONTROL_PROXY_SECRET__/$PROXY_SECRET/g" "$CONTROL_TMP"
