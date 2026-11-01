@@ -63,8 +63,34 @@ new vm.Script(navigation, {filename: 'navigation.js'});
 
 const origin = 'http://mail-control.test';
 const basePath = '/admin/mail-control/';
-const requiredLinks = ['', 'global/', 'custom-send/', 'accounts/', 'marketing/', 'marketing/?tab=api']
+const requiredLinks = ['', 'global/', 'custom-send/', 'storage/', 'accounts/', 'marketing/', 'marketing/?tab=api']
   .map(route => basePath + route).concat(['/admin/domain', '/admin/admin/list', '/admin/antispam/']);
+// Business menu entries are distinct from the intentional brand/profile
+// shortcuts. Website and Help also intentionally share the same destination.
+// Check the complete authorized menu and duplicate entries, not a stale total
+// count of every anchor in the sidebar (which changed when Storage was added).
+const expectedNavigationItems = [
+  ['全局邮件查询', basePath + 'global/'], ['邮件控制', basePath],
+  ['自定义发件', basePath + 'custom-send/'], ['附件与存储', basePath + 'storage/'],
+  ['批量邮箱', basePath + 'accounts/'], ['邮件营销', basePath + 'marketing/'],
+  ['发件 API', basePath + 'marketing/?tab=api'],
+  ['设置', '/admin/user/settings'], ['更新密码', '/admin/user/password'],
+  ['自动回复', '/admin/user/reply'], ['认证令牌', '/admin/token/list'],
+  ['客户端设置', '/admin/client'], ['公告', '/admin/announcement'],
+  ['管理员', '/admin/admin/list'], ['中继域', '/admin/relay'],
+  ['反垃圾邮件', '/admin/antispam/'], ['邮件域', '/admin/domain'],
+  ['网页邮箱', '/webmail'], ['网站', 'https://mailu.io/'],
+  ['帮助', 'https://mailu.io/'], ['登出', '/sso/logout'],
+];
+function assertAuthorizedMenu(snapshot, description) {
+  const actual = snapshot.navigationItems.map(item => [item.label, item.href]);
+  const keys = actual.map(item => JSON.stringify(item));
+  assert.equal(new Set(keys).size, actual.length, description + ': no duplicated business menu entry');
+  assert.equal(new Set(actual.map(item => item[0])).size, actual.length,
+    description + ': business menu labels are unique');
+  assert.deepEqual(keys.sort(), expectedNavigationItems.map(item => JSON.stringify(item)).sort(),
+    description + ': complete expected authorized business menu');
+}
 const fixtureMessage = {subject: 'Detail test', from: 'sender@example.net',
   to: 'support@example.com', cc: '', date: '2026-10-13', text: 'Plain fixture body',
   html: '<p>Complete fixture body</p>', attachments: []};
@@ -132,11 +158,16 @@ function recordFirstContentFrame() {
       const url = new URL(link.getAttribute('href'), location.href);
       return url.pathname + url.search;
     }) : [];
+    const navigationItems = surface ? [...surface.querySelectorAll('.nav-sidebar a[href]')].map(link => {
+      const url = new URL(link.getAttribute('href'), location.href);
+      return {label: link.textContent.replace(/\s+/g, ' ').trim(),
+        href: url.origin === location.origin ? url.pathname + url.search : url.href};
+    }) : [];
     const rect = host && host.getBoundingClientRect();
     const toggle = document.getElementById('mail-control-nav-toggle');
     const toggleRect = toggle && toggle.getBoundingClientRect();
     window.__firstMainFrame = {atMs: performance.now(), mainWidth: mainRect.width,
-      mainHeight: mainRect.height, sidebarCount: hosts.length, linkCount: links.length, links, activeLinks,
+      mainHeight: mainRect.height, sidebarCount: hosts.length, linkCount: links.length, links, activeLinks, navigationItems,
       sidebarWidth: rect?.width || 0, sidebarHeight: rect?.height || 0,
       toggleWidth: toggleRect?.width || 0, toggleHeight: toggleRect?.height || 0,
       toggleEnabled: !!toggle && !toggle.disabled,
@@ -197,6 +228,7 @@ async function runViewport(browser, viewport) {
         return route.fulfill({json: {message: fixtureMessage}});
       }
       const bodies = {
+        'uploads/policy': {policy: {single_mb: 12, total_mb: 24, max_count: 12, message_mb: 200, hard_max_mb: 100}},
         messages: {total: 1, folders: ['INBOX', '.Sent'], messages: [{path: 'new/fixture', ...fixtureMessage, folder: 'INBOX'}]},
         'global/messages': {total: 1, mailboxes: 1, folders: ['INBOX'], messages: [globalRow]},
         mailboxes: {mailboxes: ['support@example.com']},
@@ -249,6 +281,7 @@ async function runViewport(browser, viewport) {
       const snapshot = await page.evaluate(() => window.__firstMainFrame);
       firstFrames.push({route, ...snapshot});
       assert.equal(snapshot.sidebarCount, 1, route + ': complete navigation exists in first content frame');
+      assertAuthorizedMenu(snapshot, route + ': first-frame navigation');
       assert.ok(snapshot.sidebarWidth >= 180 && snapshot.sidebarHeight >= viewport.height - 1, route + ': navigation has its final dimensions');
       for (const link of requiredLinks) assert.ok(snapshot.links.includes(link), route + ': first-frame navigation includes ' + link);
       const current = new URL(origin + basePath + route);
@@ -365,7 +398,7 @@ async function runViewport(browser, viewport) {
     const rspamdFirstFrame = await page.evaluate(() => window.__firstMainFrame);
     firstFrames.push({route: '/admin/antispam/', ...rspamdFirstFrame});
     assert.equal(rspamdFirstFrame.sidebarCount, 1, 'generated Rspamd body filter puts its shell in the first content frame');
-    assert.equal(rspamdFirstFrame.linkCount, 22, 'Rspamd body filter includes all 22 authorized navigation links');
+    assertAuthorizedMenu(rspamdFirstFrame, 'Rspamd first-frame navigation');
     assert.ok(rspamdFirstFrame.sidebarWidth >= 180 && rspamdFirstFrame.sidebarHeight >= viewport.height - 1,
       'Rspamd first-frame navigation has its final desktop/mobile dimensions');
     for (const link of requiredLinks) assert.ok(rspamdFirstFrame.links.includes(link), 'Rspamd first-frame shell includes ' + link);
@@ -416,7 +449,9 @@ async function runViewport(browser, viewport) {
 
 (async () => {
   const launch = {headless: true};
-  if (process.env.CHROME_PATH) launch.executablePath = process.env.CHROME_PATH;
+  if (process.env.CHROMIUM_EXECUTABLE_PATH || process.env.CHROME_PATH) {
+    launch.executablePath = process.env.CHROMIUM_EXECUTABLE_PATH || process.env.CHROME_PATH;
+  }
   else if (process.env.PLAYWRIGHT_CHANNEL) launch.channel = process.env.PLAYWRIGHT_CHANNEL;
   const browser = await chromium.launch(launch);
   const failures = [];

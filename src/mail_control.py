@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import codecs
 import csv
 import datetime
 import email
@@ -15,6 +16,7 @@ import ipaddress
 import json
 import mimetypes
 import os
+import quopri
 import re
 import secrets
 import smtplib
@@ -74,6 +76,7 @@ class Config:
 CONFIG = Config()
 WRITE_LOCK = threading.Lock()
 UPLOAD_SLOTS = threading.BoundedSemaphore(1)
+BODY_SEARCH_SLOTS = threading.BoundedSemaphore(1)
 MARKETING_WRITE_LOCK = threading.Lock()
 CAMPAIGN_THREADS = {}
 CAMPAIGN_THREADS_LOCK = threading.Lock()
@@ -2080,11 +2083,186 @@ def global_filters(mailbox='', domain='', prefix=''):
     return allowed, selected
 
 
-def list_global_messages(mailbox='', domain='', prefix='', scope='all', folder='', query='', offset=0, limit=50):
+class _SearchHTMLText(HTMLParser):
+    """Emit visible text without executing HTML or indexing scripts/attachments."""
+
+    DROP_TAGS = {'script', 'style', 'head', 'template', 'noscript', 'iframe', 'object'}
+    VOID_TAGS = EmailHTMLSanitizer.VOID_TAGS
+    BREAK_TAGS = PlainTextExtractor.BREAK_TAGS | {'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
+
+    def __init__(self, emit):
+        super().__init__(convert_charrefs=True)
+        self.emit = emit
+        self.hidden = []
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        values = dict(attrs)
+        hidden = tag in self.DROP_TAGS or 'hidden' in values
+        if self.hidden or hidden:
+            if tag not in self.VOID_TAGS:
+                self.hidden.append(tag)
+        elif tag in self.BREAK_TAGS:
+            self.emit(' ')
+
+    def handle_startendtag(self, tag, attrs):
+        if not self.hidden and tag.lower() in self.BREAK_TAGS:
+            self.emit(' ')
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if self.hidden:
+            if tag in self.hidden:
+                index = len(self.hidden) - 1 - self.hidden[::-1].index(tag)
+                del self.hidden[index:]
+        elif tag in self.BREAK_TAGS:
+            self.emit(' ')
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.emit(data)
+
+
+def _normalize_search_text(value):
+    return re.sub(r'\s+', ' ', str(value or '').casefold())
+
+
+class _StreamingBodySearch:
+    """Decode one MIME text leaf in bounded chunks, retaining only query overlap."""
+
+    def __init__(self, headers, query):
+        self.query = query
+        self.tail = ''
+        self.was_space = False
+        self.found = False
+        self.pending = b''
+        self.transfer = str(headers.get('Content-Transfer-Encoding', '')).strip().lower()
+        try:
+            charset = headers.get_content_charset() or 'utf-8'
+            b'a'.decode(charset, errors='replace')  # Reject binary transform codecs in untrusted MIME headers.
+            decoder = codecs.getincrementaldecoder(charset)
+        except (LookupError, TypeError):
+            decoder = codecs.getincrementaldecoder('utf-8')
+        self.decoder = decoder(errors='replace')
+        self.html = _SearchHTMLText(self.emit) if headers.get_content_type() == 'text/html' else None
+
+    def emit(self, text):
+        normalized = _normalize_search_text(text)
+        if self.was_space and normalized.startswith(' '):
+            normalized = normalized[1:]
+        if not normalized:
+            return
+        self.was_space = normalized.endswith(' ')
+        joined = self.tail + normalized
+        self.found = self.found or self.query in joined
+        overlap = len(self.query) - 1
+        self.tail = joined[-overlap:] if overlap else ''
+
+    def feed(self, raw=b'', final=False):
+        if self.transfer == 'base64':
+            data = self.pending + re.sub(rb'[^A-Za-z0-9+/=]', b'', raw)
+            length = len(data) if final else len(data) // 4 * 4
+            encoded, self.pending = data[:length], data[length:]
+            if final:
+                encoded += b'=' * (-len(encoded) % 4)
+            try:
+                decoded = base64.b64decode(encoded) if encoded else b''
+            except (ValueError, base64.binascii.Error):
+                decoded = b''
+        elif self.transfer == 'quoted-printable':
+            data = self.pending + raw
+            incomplete = None if final else re.search(rb'=(?:[0-9A-Fa-f]|\r)?$', data)
+            if incomplete:
+                self.pending = data[incomplete.start():]
+                data = data[:incomplete.start()]
+            else:
+                self.pending = b''
+            decoded = quopri.decodestring(data)
+        else:
+            decoded = raw
+        text = self.decoder.decode(decoded, final=final)
+        if self.html:
+            self.html.feed(text)
+            if final:
+                self.html.close()
+        else:
+            self.emit(text)
+
+
+def _search_part_headers(stream):
+    headers = bytearray()
+    while True:
+        raw = stream.readline(64 * 1024)
+        headers.extend(raw)
+        if not raw or raw in {b'\n', b'\r\n'}:
+            break
+        if len(headers) > MAX_BODY:
+            raise ValueError('邮件 MIME 头过大')
+    return email.parser.BytesHeaderParser(policy=email.policy.default).parsebytes(headers)
+
+
+@lru_cache(maxsize=512)
+def _message_body_matches(path, file_id, query):
+    # Cache booleans, not email bodies. A new stat signature invalidates a result.
+    # Only one cold body scan runs at a time on the shared production host.
+    with BODY_SEARCH_SLOTS, path.open('rb') as stream:
+        boundaries = []
+
+        def begin(headers):
+            # A multipart or forwarded-message attachment must not expose children.
+            if headers.get_content_disposition() == 'attachment' or headers.get_filename():
+                return None
+            if headers.get_content_maintype() == 'multipart':
+                boundary = headers.get_boundary()
+                if boundary:
+                    boundaries.append(boundary.encode('utf-8', 'replace'))
+                return None
+            if headers.get_content_type() in {'text/plain', 'text/html'}:
+                return _StreamingBodySearch(headers, query)
+            return None
+
+        part = begin(_search_part_headers(stream))
+        line_start = True
+        while True:
+            raw = stream.readline(64 * 1024)
+            if not raw:
+                if part:
+                    part.feed(final=True)
+                return bool(part and part.found)
+            boundary_match = None
+            if line_start and raw.startswith(b'--'):
+                marker = raw.rstrip(b'\r\n').rstrip(b' \t')
+                for index in range(len(boundaries) - 1, -1, -1):
+                    boundary = b'--' + boundaries[index]
+                    if marker in {boundary, boundary + b'--'}:
+                        boundary_match = (index, marker == boundary + b'--')
+                        break
+            line_start = raw.endswith(b'\n')
+            if boundary_match:
+                if part:
+                    part.feed(final=True)
+                    if part.found:
+                        return True
+                index, closing = boundary_match
+                del boundaries[index if closing else index + 1:]
+                part = None if closing else begin(_search_part_headers(stream))
+                line_start = True
+            elif part:
+                part.feed(raw)
+                if part.found:
+                    return True
+
+
+def list_global_messages(mailbox='', domain='', prefix='', scope='all', folder='', query='', offset=0, limit=50, search_field='all'):
     if scope not in {'all', 'unread'}:
         raise ValueError('邮件范围无效')
+    search_field = str(search_field or 'all').strip().lower()
+    if search_field not in {'all', 'subject', 'body', 'from', 'to'}:
+        raise ValueError('关键词查询范围无效')
     allowed, selected = global_filters(mailbox, domain, prefix)
-    query = str(query or '').strip().lower()
+    query = _normalize_search_text(query).strip()
+    if len(query) > 1000:
+        raise ValueError('查询关键词不能超过 1000 个字符')
     candidates = []
     folders = set()
     for box in selected:
@@ -2110,9 +2288,17 @@ def list_global_messages(mailbox='', domain='', prefix='', scope='all', folder='
             if root not in path.parents or path.is_symlink():
                 continue
             stat = path.stat()
-            headers = _message_headers(path, (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size))
+            file_id = (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size)
+            headers = _message_headers(path, file_id)
             if query:
-                if query not in ' '.join([box] + [headers[k] for k in ('subject', 'from', 'to', 'cc')]).lower():
+                keys = {'subject': ('subject',), 'from': ('from',), 'to': ('to', 'cc')}.get(search_field, ())
+                values = [headers[key] for key in keys]
+                if search_field == 'all':
+                    values = [box] + [headers[key] for key in ('subject', 'from', 'to', 'cc')]
+                matched = query in _normalize_search_text(' '.join(values))
+                if not matched and search_field in {'all', 'body'}:
+                    matched = _message_body_matches(path, file_id, query)
+                if not matched:
                     continue
                 total += 1
                 if total <= offset or len(results) >= limit:
@@ -2123,7 +2309,7 @@ def list_global_messages(mailbox='', domain='', prefix='', scope='all', folder='
         except (OSError, ValueError, email.errors.MessageParseError):
             continue
     return {'messages': results, 'total': total, 'folders': sorted(folders),
-            'mailboxes': len(selected), 'offset': offset, 'limit': limit}
+            'mailboxes': len(selected), 'offset': offset, 'limit': limit, 'search_field': search_field}
 
 
 def global_message_path(mailbox, message_id, folder):
@@ -2566,25 +2752,81 @@ GLOBAL_HTML = r"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>全局邮件查询</title>
 <style>
 :root{--ink:#17212b;--muted:#637381;--line:#d9e1e8;--accent:#1677a8;--danger:#b42318}*{box-sizing:border-box}body{margin:0;background:#f5f7f9;color:var(--ink);font:14px system-ui,sans-serif}header{padding:18px 24px;background:#27333e;color:#fff}header a{color:#d8edf7;text-decoration:none}h1{font-size:20px;margin:10px 0 0}main{max-width:1500px;margin:24px auto;padding:0 16px}.panel{background:#fff;border:1px solid var(--line);border-radius:6px;padding:18px;margin-bottom:16px}.fields{display:grid;grid-template-columns:repeat(3,minmax(160px,1fr));gap:12px}label{display:block;color:var(--muted);margin-bottom:6px}input,select{width:100%;padding:9px;border:1px solid #b9c7d2;border-radius:4px;font:inherit}button{padding:9px 14px;border:0;border-radius:4px;background:var(--accent);color:#fff;cursor:pointer}button.secondary{background:#64748b}button.danger{background:var(--danger)}button:disabled{opacity:.5;cursor:default}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px}.toolbar input{width:auto}.muted{color:var(--muted)}.error{color:var(--danger)}.scroll{overflow:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:10px 8px;overflow-wrap:anywhere}th{white-space:nowrap;color:var(--muted)}td input,th input{width:auto}td button.link{background:none;color:var(--accent);padding:0;text-align:left;font:inherit}tr.unread td{background:#f1f8fc}td small{display:block;margin-top:5px;color:var(--muted)}.empty{padding:30px;text-align:center;color:var(--muted)}dialog{width:min(1100px,95vw);max-height:92vh;border:1px solid var(--line);border-radius:8px;padding:20px}dialog::backdrop{background:#0006}.modal-head{display:flex;justify-content:space-between;gap:12px}.modal-head h2{margin:0;font-size:18px;overflow-wrap:anywhere}.message-frame{width:100%;height:52vh;border:1px solid var(--line);margin-top:16px}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:52vh;overflow:auto;background:#f5f7f9;padding:14px}.hidden{display:none}.meta{overflow-wrap:anywhere;margin:12px 0;color:var(--muted)}@media(max-width:800px){.fields{grid-template-columns:1fr 1fr}main{margin:12px auto;padding:0 10px}}@media(max-width:480px){.fields{grid-template-columns:1fr}}
+.keyword-search{display:grid;grid-template-columns:135px minmax(0,1fr);gap:8px}.query-progress{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:12px;min-height:24px;font-size:12px;color:var(--accent)}.query-progress[hidden]{display:none}.query-progress progress{width:140px;max-width:40%;height:7px;accent-color:var(--accent)}.query-progress small{color:var(--muted)}@media(max-width:480px){.keyword-search{grid-template-columns:1fr}.query-progress progress{width:100px}}
 </style></head><body><header><a href="../">← 邮件控制</a><h1>全局邮件查询</h1></header><main>
-<section class="panel"><div class="fields"><div><label for="domain">精确域名</label><select id="domain"><option value="">全站所有域名</option></select></div><div><label for="prefix">精确邮箱前缀（配合域名）</label><input id="prefix" placeholder="例如 support，不会匹配 support1"></div><div><label for="mailbox">完整邮箱地址（精确查询）</label><input id="mailbox" placeholder="例如 support@99765.my.id"></div><div><label for="scope">邮件范围</label><select id="scope"><option value="all">全部邮件</option><option value="unread">仅未读邮件</option></select></div><div><label for="folder">文件夹</label><select id="folder"><option value="">全部文件夹</option></select></div><div><label for="query">主题 / 发件人 / 收件人关键词</label><input id="query" placeholder="可选关键词"></div></div><div class="toolbar"><button id="search">查询</button><button id="reset" class="secondary">重置</button><button id="refresh" class="secondary">刷新</button><label style="margin:0"><input id="auto" type="checkbox" checked>每 15 秒自动刷新</label></div><p class="muted">统一查看全站已投递的邮件，包含收件箱和其他文件夹。选择域名可查询该域名下所有邮箱；前缀与域名组合可定位一个邮箱。</p></section>
-<section class="panel"><div class="toolbar" style="margin-top:0"><button id="delete" class="danger" disabled>删除选中邮件</button><span id="selection" class="muted">已选 0 封</span><span id="status" role="status" class="muted">正在加载…</span></div><div class="scroll"><table><thead><tr><th><input id="select-all" type="checkbox" aria-label="选择当前页全部邮件"></th><th>所属邮箱</th><th>主题</th><th>发件人</th><th>收件人</th><th>入站时间</th><th>文件夹</th></tr></thead><tbody id="rows"></tbody></table></div><div class="toolbar"><button id="prev" class="secondary">上一页</button><span id="page"></span><button id="next" class="secondary">下一页</button><label style="margin:0">每页 <select id="limit" style="width:auto"><option>25</option><option selected>50</option><option>100</option></select> 封</label></div></section></main>
+<section class="panel"><div class="fields"><div><label for="domain">精确域名</label><select id="domain"><option value="">全站所有域名</option></select></div><div><label for="prefix">精确邮箱前缀（配合域名）</label><input id="prefix" placeholder="例如 support，不会匹配 support1"></div><div><label for="mailbox">完整邮箱地址（精确查询）</label><input id="mailbox" placeholder="例如 support@99765.my.id"></div><div><label for="scope">邮件范围</label><select id="scope"><option value="all">全部邮件</option><option value="unread">仅未读邮件</option></select></div><div><label for="folder">文件夹</label><select id="folder"><option value="">全部文件夹</option></select></div><div><label for="query">关键词</label><div class="keyword-search"><select id="search-field" aria-label="关键词匹配范围"><option value="all">全部（含正文）</option><option value="subject">仅主题</option><option value="body">仅正文</option><option value="from">仅发件人</option><option value="to">仅收件人</option></select><input id="query" placeholder="输入主题或正文关键词"></div></div></div><div class="toolbar"><button id="search">查询</button><button id="reset" class="secondary">重置</button><button id="refresh" class="secondary">刷新</button><label style="margin:0"><input id="auto" type="checkbox" checked><span id="auto-label">每 5 秒自动刷新</span></label></div><div id="query-progress" class="query-progress" role="status" aria-live="polite" hidden><progress id="query-progress-bar" aria-label="查询进行中"></progress><span id="query-progress-text">正在查询邮件…</span><small id="query-progress-elapsed"></small></div><p class="muted">统一查看全站已投递的邮件，包含收件箱和其他文件夹。选择域名可查询该域名下所有邮箱；前缀与域名组合可定位一个邮箱。关键词可选择仅主题、仅正文或全部字段；无关键词每 5 秒刷新，关键词查询每 15 秒刷新，后台页暂停。</p></section>
+<section class="panel" id="query-results" aria-busy="false"><div class="toolbar" style="margin-top:0"><button id="delete" class="danger" disabled>删除选中邮件</button><span id="selection" class="muted">已选 0 封</span><span id="status" role="status" class="muted">正在加载…</span></div><div class="scroll"><table><thead><tr><th><input id="select-all" type="checkbox" aria-label="选择当前页全部邮件"></th><th>所属邮箱</th><th>主题</th><th>发件人</th><th>收件人</th><th>入站时间</th><th>文件夹</th></tr></thead><tbody id="rows"></tbody></table></div><div class="toolbar"><button id="prev" class="secondary">上一页</button><span id="page"></span><button id="next" class="secondary">下一页</button><label style="margin:0">每页 <select id="limit" style="width:auto"><option>25</option><option selected>50</option><option>100</option></select> 封</label></div></section></main>
 <dialog id="detail"><div class="modal-head"><h2 id="subject"></h2><button id="close" class="secondary">关闭</button></div><div id="meta" class="meta"></div><div class="toolbar"><button id="html-tab">HTML 正文</button><button id="text-tab" class="secondary">纯文本</button><button id="delete-one" class="danger">删除此邮件</button></div><iframe id="html-view" class="message-frame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="邮件正文"></iframe><pre id="text-view" class="hidden"></pre><p id="attachments" class="muted"></p></dialog>
 <script>
 const $=s=>document.querySelector(s),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const base=location.pathname.endsWith('/')?'../':'./';let rows=[],offset=0,total=0,loading=false,filters={},current=null,detailVersion=0;
+const base=location.pathname.endsWith('/')?'../':'./';
+let rows=[],offset=0,total=0,loading=false,filters={},current=null,detailVersion=0;
+let queryRevision=0,pendingLoad=null,queryPromise=null,activeController=null,activeQueryKey='',refreshTimer=null,progressTimer=null,pageStopped=false;
+const fieldLabels={all:'全部字段（含正文）',subject:'主题',body:'正文',from:'发件人',to:'收件人'};
 async function api(path,options){const r=await fetch(base+'api/'+path,options);const j=await r.json().catch(()=>({error:r.statusText}));if(!r.ok)throw Error(j.error||r.statusText);return j}
 function status(text,error=false){$('#status').textContent=text;$('#status').className=error?'error':'muted'}
-function selected(){return [...document.querySelectorAll('[data-check]:checked')].map(x=>rows[Number(x.dataset.check)])}
-function updateSelection(){const n=selected().length;$('#selection').textContent=`已选 ${n} 封`;$('#delete').disabled=!n;$('#select-all').checked=rows.length>0&&n===rows.length;$('#select-all').indeterminate=n>0&&n<rows.length}
-function capture(){filters={domain:$('#domain').value,prefix:$('#prefix').value.trim(),mailbox:$('#mailbox').value.trim(),scope:$('#scope').value,folder:$('#folder').value,q:$('#query').value.trim()};offset=0}
-async function load(){if(loading)return;loading=true;try{const params=new URLSearchParams({...filters,offset,limit:$('#limit').value});const j=await api('global/messages?'+params);total=j.total;if(offset>=total&&offset>0){offset=Math.max(0,Math.floor(Math.max(0,total-1)/Number($('#limit').value))*Number($('#limit').value));loading=false;return load()}rows=j.messages;$('#rows').innerHTML=rows.length?rows.map((m,i)=>`<tr class="${m.unread?'unread':''}"><td><input type="checkbox" data-check="${i}" aria-label="选择 ${esc(m.subject||'无主题')}"></td><td>${esc(m.mailbox)}<small>${m.unread?'未读':'已读'}</small></td><td><button class="link" data-view="${i}">${esc(m.subject||'(无主题)')}</button></td><td>${esc(m.from)}</td><td>${esc(m.to)}</td><td>${esc(new Date(m.received_at*1000).toLocaleString())}</td><td>${esc(m.folder)}</td></tr>`).join(''):'<tr><td colspan="7" class="empty">没有符合条件的邮件</td></tr>';const folder=$('#folder').value;$('#folder').innerHTML='<option value="">全部文件夹</option>'+j.folders.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('');if(folder&&!j.folders.includes(folder))$('#folder').add(new Option(folder,folder));$('#folder').value=folder;$('#prev').disabled=offset===0;$('#next').disabled=offset+rows.length>=total;$('#page').textContent=`${total?offset+1:0}–${offset+rows.length} / ${total} 封`;updateSelection();status(`已查 ${j.mailboxes} 个邮箱 · 更新于 ${new Date().toLocaleTimeString()}`)}catch(e){status(e.message,true)}finally{loading=false}}
+function selected(){return [...document.querySelectorAll('[data-check]:checked')].map(x=>rows[Number(x.dataset.check)]).filter(Boolean)}
+function updateSelection(){const n=selected().length;$('#selection').textContent=`已选 ${n} 封`;$('#delete').disabled=!n||loading;$('#select-all').checked=rows.length>0&&n===rows.length;$('#select-all').indeterminate=n>0&&n<rows.length}
+function capture(){filters={domain:$('#domain').value,prefix:$('#prefix').value.trim(),mailbox:$('#mailbox').value.trim(),scope:$('#scope').value,folder:$('#folder').value,q:$('#query').value.trim(),search_field:$('#search-field').value};offset=0;updateAutoLabel()}
+function refreshDelay(){return filters.q?15000:5000}
+function updateAutoLabel(){$('#auto-label').textContent=`每 ${refreshDelay()/1000} 秒自动刷新`}
+function canAutoRefresh(){return !pageStopped&&!document.hidden&&$('#auto').checked&&!selected().length&&(!$('#detail').open||$('#detail').classList.contains('flow-reader-detail'))}
+function scheduleRefresh(){clearTimeout(refreshTimer);refreshTimer=null;if(pageStopped||document.hidden||!$('#auto').checked)return;refreshTimer=setTimeout(()=>{if(canAutoRefresh()&&!loading)load({automatic:true});else scheduleRefresh()},refreshDelay())}
+function showQueryProgress(text){$('#query-progress').hidden=false;$('#query-progress-text').textContent=text}
+function queryBusy(value){$('#query-results').setAttribute('aria-busy',String(value));$('#query-progress').hidden=!value;$('#search').textContent=value?'更新查询':'查询';$('#search').setAttribute('aria-busy',String(value));$('#refresh').disabled=value;$('#prev').disabled=value||offset===0;$('#next').disabled=value||offset+rows.length>=total;$('#delete-one').disabled=value;updateSelection()}
+function renderMessages(j,request){
+ total=Number(j.total)||0;offset=request.offset;rows=j.messages||[];
+ $('#rows').innerHTML=rows.length?rows.map((m,i)=>`<tr class="${m.unread?'unread':''}"><td><input type="checkbox" data-check="${i}" aria-label="选择 ${esc(m.subject||'无主题')}"></td><td>${esc(m.mailbox)}<small>${m.unread?'未读':'已读'}</small></td><td><button class="link" data-view="${i}">${esc(m.subject||'(无主题)')}</button></td><td>${esc(m.from)}</td><td>${esc(m.to)}</td><td>${esc(new Date(m.received_at*1000).toLocaleString())}</td><td>${esc(m.folder)}</td></tr>`).join(''):'<tr><td colspan="7" class="empty">没有符合条件的邮件</td></tr>';
+ const folder=$('#folder').value,folders=j.folders||[];$('#folder').innerHTML='<option value="">全部文件夹</option>'+folders.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('');if(folder&&!folders.includes(folder))$('#folder').add(new Option(folder,folder));$('#folder').value=folder;
+ $('#page').textContent=`${total?offset+1:0}–${offset+rows.length} / ${total} 封`;
+ status(`已查 ${j.mailboxes} 个邮箱 · 匹配 ${total} 封 · 更新于 ${new Date().toLocaleTimeString()}`);
+}
+function load(options={}){
+ if(pageStopped||(options.automatic&&!canAutoRefresh()))return Promise.resolve();
+ if(options.automatic&&loading)return queryPromise||Promise.resolve();
+ const request={filters:{...filters},offset,limit:Number($('#limit').value)||50,automatic:!!options.automatic};
+ request.key=JSON.stringify([request.filters,request.offset,request.limit]);
+ if(loading&&((!pendingLoad&&request.key===activeQueryKey)||pendingLoad?.key===request.key))return queryPromise;
+ request.revision=++queryRevision;
+ pendingLoad=request;
+ if(loading){showQueryProgress('已接收新的筛选条件，当前查询结束后立即更新…');return queryPromise}
+ queryPromise=runQueries();return queryPromise;
+}
+async function runQueries(){
+ loading=true;clearTimeout(refreshTimer);queryBusy(true);
+ try{
+  while(pendingLoad&&!pageStopped){
+   const request=pendingLoad;pendingLoad=null;activeQueryKey=request.key;const start=performance.now();
+   showQueryProgress(request.automatic?'正在刷新邮件列表…':request.filters.q?`正在按${fieldLabels[request.filters.search_field]||'关键词'}查询邮件…`:'正在查询邮件列表…');
+   $('#query-progress-elapsed').textContent='';clearInterval(progressTimer);progressTimer=setInterval(()=>{$('#query-progress-elapsed').textContent=`已用 ${Math.floor((performance.now()-start)/1000)} 秒`},1000);
+   activeController=new AbortController();let timedOut=false;
+   const timeout=setTimeout(()=>{timedOut=true;activeController?.abort()},90000);
+   try{
+    const params=new URLSearchParams({...request.filters,offset:request.offset,limit:request.limit});
+    const j=await api('global/messages?'+params,{signal:activeController.signal,cache:'no-store'});
+    if(request.revision!==queryRevision||pageStopped)continue;
+    const count=Number(j.total)||0;
+    if(request.offset>=count&&request.offset>0){offset=Math.max(0,Math.floor(Math.max(0,count-1)/request.limit)*request.limit);pendingLoad={...request,offset};continue}
+    renderMessages(j,request);
+   }catch(e){
+    if(request.revision===queryRevision&&!pageStopped)status(timedOut?'查询超时，已保留上次结果；请缩小域名或邮箱范围后重试。':`查询失败，已保留上次结果：${e.message}`,true);
+   }finally{clearTimeout(timeout);clearInterval(progressTimer);progressTimer=null;activeController=null;activeQueryKey=''}
+  }
+ }finally{loading=false;queryPromise=null;queryBusy(false);scheduleRefresh()}
+}
 function identity(m){return {mailbox:m.mailbox,id:m.id,folder:m.folder}}
-async function remove(items){if(!items.length)return;if(!confirm(`确定永久删除所选 ${items.length} 封邮件？邮件将从对应邮箱中删除，此操作不可恢复。`))return;$('#delete').disabled=true;$('#delete-one').disabled=true;try{const j=await api('global/messages',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:items.map(identity)})});if(current&&j.deleted.some(x=>x.mailbox===current.mailbox&&x.id===current.id&&x.folder===current.folder))$('#detail').close();await load();status(`已删除 ${j.deleted.length} 封${j.errors.length?'；'+j.errors.map(x=>x.error).join('；'):''}`,!!j.errors.length)}catch(e){status(e.message,true)}finally{updateSelection();$('#delete-one').disabled=false}}
+async function remove(items){if(!items.length||loading)return;if(!confirm(`确定永久删除所选 ${items.length} 封邮件？邮件将从对应邮箱中删除，此操作不可恢复。`))return;$('#delete').disabled=true;$('#delete-one').disabled=true;try{const j=await api('global/messages',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:items.map(identity)})});if(current&&j.deleted.some(x=>x.mailbox===current.mailbox&&x.id===current.id&&x.folder===current.folder))$('#detail').close();await load();status(`已删除 ${j.deleted.length} 封${j.errors.length?'；'+j.errors.map(x=>x.error).join('；'):''}`,!!j.errors.length)}catch(e){status(e.message,true)}finally{updateSelection();$('#delete-one').disabled=loading}}
 async function view(m){const version=++detailVersion;try{const j=await api('global/message?'+new URLSearchParams(identity(m)));if(version!==detailVersion)return;current=m;const v=j.message;$('#subject').textContent=v.subject||'(无主题)';$('#meta').textContent=`所属邮箱：${m.mailbox} | 发件人：${v.from} | 收件人：${v.to}${v.cc?' | 抄送：'+v.cc:''} | ${v.date}`;MailViewer.show($('#html-view'),v,base+'api/body?'+new URLSearchParams(identity(m)));MailViewer.attachments($('#attachments'),v,base+'api/attachment?',identity(m));$('#text-view').textContent=v.text||'(无纯文本正文)';$('#html-view').classList.remove('hidden');$('#text-view').classList.add('hidden');if(!$('#detail').open)$('#detail').showModal()}catch(e){status(e.message,true)}}
-$('#rows').onclick=e=>{const b=e.target.closest('[data-view]');if(b)view(rows[Number(b.dataset.view)])};$('#rows').onchange=updateSelection;$('#select-all').onchange=()=>{document.querySelectorAll('[data-check]').forEach(x=>x.checked=$('#select-all').checked);updateSelection()};$('#delete').onclick=()=>remove(selected());$('#delete-one').onclick=()=>remove(current?[current]:[]);$('#close').onclick=()=>{detailVersion++;current=null;$('#detail').close()};$('#detail').addEventListener('cancel',()=>{detailVersion++;current=null});$('#detail').addEventListener('close',()=>{if(!$('#detail').open){detailVersion++;current=null}});$('#html-tab').onclick=()=>{$('#html-view').classList.remove('hidden');$('#text-view').classList.add('hidden')};$('#text-tab').onclick=()=>{$('#text-view').classList.remove('hidden');$('#html-view').classList.add('hidden')};$('#search').onclick=()=>{capture();load()};$('#refresh').onclick=()=>{capture();load()};$('#reset').onclick=()=>{['domain','prefix','mailbox','query','folder'].forEach(id=>$('#'+id).value='');$('#scope').value='all';capture();load()};$('#prev').onclick=()=>{offset=Math.max(0,offset-Number($('#limit').value));load()};$('#next').onclick=()=>{offset+=Number($('#limit').value);load()};$('#limit').onchange=()=>{offset=0;load()};['prefix','mailbox','query'].forEach(id=>$('#'+id).onkeydown=e=>{if(e.key==='Enter'){capture();load()}});
-setInterval(()=>{if($('#auto').checked&&!document.hidden&&!$('#detail').open&&!selected().length)load()},15000);window.addEventListener('mail-control-activate',()=>{if(!selected().length)load()});
-api('domains').then(j=>{$('#domain').innerHTML='<option value="">全站所有域名</option>'+j.domains.map(d=>`<option value="${esc(d.name)}">${esc(d.name)}</option>`).join('');capture();load()}).catch(e=>status(e.message,true));
+$('#rows').onclick=e=>{const b=e.target.closest('[data-view]');if(b)view(rows[Number(b.dataset.view)])};$('#rows').onchange=updateSelection;$('#select-all').onchange=()=>{document.querySelectorAll('[data-check]').forEach(x=>x.checked=$('#select-all').checked);updateSelection()};$('#delete').onclick=()=>remove(selected());$('#delete-one').onclick=()=>remove(current?[current]:[]);$('#close').onclick=()=>{detailVersion++;current=null;$('#detail').close()};$('#detail').addEventListener('cancel',()=>{detailVersion++;current=null});$('#detail').addEventListener('close',()=>{if(!$('#detail').open){detailVersion++;current=null}});$('#html-tab').onclick=()=>{$('#html-view').classList.remove('hidden');$('#text-view').classList.add('hidden')};$('#text-tab').onclick=()=>{$('#text-view').classList.remove('hidden');$('#html-view').classList.add('hidden')};
+function submitFilters(){capture();return load()}
+$('#search').onclick=submitFilters;$('#refresh').onclick=submitFilters;$('#reset').onclick=()=>{['domain','prefix','mailbox','query','folder'].forEach(id=>$('#'+id).value='');$('#scope').value='all';$('#search-field').value='all';submitFilters()};$('#prev').onclick=()=>{offset=Math.max(0,offset-Number($('#limit').value));load()};$('#next').onclick=()=>{offset+=Number($('#limit').value);load()};$('#limit').onchange=()=>{offset=0;load()};['prefix','mailbox','query'].forEach(id=>$('#'+id).onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();submitFilters()}});
+$('#auto').onchange=scheduleRefresh;
+document.addEventListener('visibilitychange',()=>{clearTimeout(refreshTimer);if(!document.hidden)scheduleRefresh()});
+window.addEventListener('mail-control-activate',()=>load({automatic:true}));
+window.addEventListener('pagehide',()=>{pageStopped=true;pendingLoad=null;queryRevision++;clearTimeout(refreshTimer);clearInterval(progressTimer);activeController?.abort()});
+window.addEventListener('pageshow',e=>{if(e.persisted){pageStopped=false;if(canAutoRefresh())load({automatic:true});else scheduleRefresh()}});
+capture();load();
+api('domains').then(j=>{const domain=$('#domain').value;$('#domain').innerHTML='<option value="">全站所有域名</option>'+j.domains.map(d=>`<option value="${esc(d.name)}">${esc(d.name)}</option>`).join('');$('#domain').value=domain}).catch(e=>status('域名列表加载失败，可用完整邮箱查询：'+e.message,true));
 </script></body></html>
 """
 
@@ -3039,9 +3281,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(list_global_messages(
                     mailbox=query.get("mailbox", [""])[0], domain=query.get("domain", [""])[0],
                     prefix=query.get("prefix", [""])[0], scope=query.get("scope", ["all"])[0],
-                    folder=query.get("folder", [""])[0], query=query.get("q", [""])[0],
+                    folder=query.get("folder", [""])[0], query=query.get("q", query.get("query", [""]))[0],
                     offset=max(0, int(query.get("offset", ["0"])[0])),
-                    limit=min(100, max(1, int(query.get("limit", ["50"])[0])))))
+                    limit=min(100, max(1, int(query.get("limit", ["50"])[0]))),
+                    search_field=query.get("search_field", ["all"])[0]))
             elif parsed.path == "/api/global/message":
                 mailbox = query.get("mailbox", [""])[0]
                 path = global_message_path(mailbox, query.get("id", [""])[0], query.get("folder", [""])[0])

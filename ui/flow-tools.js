@@ -208,13 +208,9 @@
       else if (desktop.addListener) desktop.addListener(switchMode);
       switchMode();
 
-      // The original timer pauses while a modal is open. A desktop reading pane
-      // is not modal, so keep its existing load() routine refreshing the list.
-      refreshTimer = setInterval(function () {
-        var auto = document.getElementById('auto');
-        if (!desktop.matches || !detail.open || document.hidden || !auto || !auto.checked || rows.querySelector('[data-check]:checked')) return;
-        if (typeof window.load === 'function') Promise.resolve(window.load()).catch(function () {});
-      }, 15000);
+      // The query page owns a single visibility-aware refresh scheduler.
+      // Its desktop reader is non-modal and is included in that scheduler.
+
     } catch (error) { rollback(error); }
   }
 

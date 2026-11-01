@@ -18,6 +18,8 @@ The user updated DNS; `postal.qnns.de` resolves to the new address. Source Mailu
 
 ## Destination cleanup and limits
 
+**Historical scope:** the cleanup below describes 2026-10-26 only. The user subsequently installed NekoPass and its PostgreSQL dependency on 2026-11-01. Both are protected production workloads. Follow `production-cohosting.md` and `AGENTS.md` for all future maintenance; do not reuse the old two-application cleanup scope.
+
 At the user's request, removed container `c52c8676952a` (Emby), its image and business directory; removed and masked Komari; removed unused LXD snap packages. Retained V2bX, the Mailu stack, Mail Control, Docker, OS services, and the certificate renewal image. V2bX PID remained unchanged during migration.
 
 System journal is capped at 150 MB on disk / 50 MB runtime. Each mail container uses JSON log rotation at 10 MB × 3 files. Cleared obsolete package lists, package cache, and old failed-login logs. Final root filesystem use was approximately 5.5 GiB of 19.2 GiB, with approximately 13.8 GiB available. Mail retention and attachment policies were not changed.

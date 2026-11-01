@@ -56,6 +56,8 @@ Mailu 原生登录、会话及表单权限保持上游行为。扩展页面和�
 
 ## 安装及回滚
 
+生产服务器同时运行 NekoPass、其 PostgreSQL 数据库和 V2bX。所有部署必须遵循 `production-cohosting.md`，只操作邮件专属服务；不得重启 Docker、整机清理或改动其他业务。
+
 本地安装使用完整源码目录：
 
 ```bash
